@@ -1,0 +1,27 @@
+# Secrets & local config
+.env
+.env.local
+
+# Aurora runtime data (sqlite db, learned rules, tokens)
+data/
+*.sqlite
+*.sqlite3
+token.json
+credentials.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
