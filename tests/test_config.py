@@ -28,7 +28,7 @@ def test_loads_minimal_without_telegram(monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
     config = Config.load(require_telegram=False)
     assert config.deepseek_api_key == "sk-test"
-    assert config.deepseek_model == "deepseek-chat"
+    assert config.deepseek_model == "deepseek-v4-flash"
     assert config.autonomy_mode == "approve_all"
 
 

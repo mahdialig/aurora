@@ -64,7 +64,7 @@ class Config:
         deepseek_base_url = os.environ.get(
             "DEEPSEEK_BASE_URL", "https://api.deepseek.com"
         ).rstrip("/")
-        deepseek_model = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+        deepseek_model = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash")
 
         telegram_bot_token = (
             _require("TELEGRAM_BOT_TOKEN") if require_telegram else os.environ.get("TELEGRAM_BOT_TOKEN", "")
