@@ -46,6 +46,8 @@ class Config:
     allowed_user_id: int
     autonomy_mode: str
     data_dir: Path
+    google_credentials_file: Path
+    google_token_file: Path
 
     @classmethod
     def load(cls, *, require_telegram: bool = True) -> "Config":
@@ -78,6 +80,15 @@ class Config:
                 f"expected one of {', '.join(AUTONOMY_MODES)}."
             )
 
+        # Gmail (M1). Paths only — presence is checked when Gmail is actually used,
+        # so the bot still loads fine before Google credentials exist.
+        google_credentials_file = Path(
+            os.environ.get("GOOGLE_CREDENTIALS_FILE", str(PROJECT_ROOT / "credentials.json"))
+        )
+        google_token_file = Path(
+            os.environ.get("GOOGLE_TOKEN_FILE", str(DATA_DIR / "token.json"))
+        )
+
         DATA_DIR.mkdir(parents=True, exist_ok=True)
 
         return cls(
@@ -88,6 +99,8 @@ class Config:
             allowed_user_id=allowed_user_id,
             autonomy_mode=autonomy_mode,
             data_dir=DATA_DIR,
+            google_credentials_file=google_credentials_file,
+            google_token_file=google_token_file,
         )
 
 
