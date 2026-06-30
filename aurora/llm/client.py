@@ -8,6 +8,9 @@ touching callers.
 
 from __future__ import annotations
 
+import json
+import logging
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Literal
@@ -16,7 +19,59 @@ import httpx
 
 from aurora.config import Config
 
+logger = logging.getLogger("aurora.llm")
+
 Role = Literal["system", "user", "assistant"]
+
+
+# DeepSeek sometimes emits a tool call as TEXT in ``content`` (using its internal
+# markup tokens) instead of through the structured ``tool_calls`` field. The agent
+# loop then sees no tool call and would relay the raw markup to the user. These
+# lenient patterns recover such leaked calls so the loop can execute them normally.
+# They ignore the exact delimiter form (DeepSeek wraps tags in special "｜｜DSML｜｜"
+# tokens) and key only on the invoke/parameter structure.
+_LEAK_INVOKE_RE = re.compile(
+    r'invoke\s+name="([^"]+)"\s*>(.*?)</[^<>]*invoke\s*>', re.DOTALL | re.IGNORECASE
+)
+_LEAK_PARAM_RE = re.compile(
+    r'parameter\s+name="([^"]+)"[^>]*>(.*?)</[^<>]*parameter\s*>', re.DOTALL | re.IGNORECASE
+)
+
+
+def _recover_tool_calls(content: str) -> tuple[list[dict], str]:
+    """Parse tool calls leaked into text content into OpenAI-style ``tool_calls``.
+
+    Returns ``(tool_calls, cleaned_content)``. If nothing looks leaked, returns
+    ``([], content)`` unchanged — so normal replies are never touched."""
+    if not content or "invoke name=" not in content:
+        return [], content
+
+    calls: list[dict] = []
+    for i, m in enumerate(_LEAK_INVOKE_RE.finditer(content)):
+        name, body = m.group(1).strip(), m.group(2)
+        args: dict = {}
+        for pm in _LEAK_PARAM_RE.finditer(body):
+            key, raw = pm.group(1).strip(), pm.group(2).strip()
+            try:  # recover real types (bools, numbers, arrays); else keep the string
+                args[key] = json.loads(raw)
+            except (ValueError, TypeError):
+                args[key] = raw
+        calls.append({
+            "id": f"call_recovered_{i}",
+            "type": "function",
+            "function": {"name": name, "arguments": json.dumps(args)},
+        })
+
+    if not calls:
+        return [], content
+
+    # Strip the leaked markup so no raw tokens survive into history / the user.
+    cleaned = re.sub(r'<[^<>]*tool_calls\s*>.*?</[^<>]*tool_calls\s*>', "", content,
+                     flags=re.DOTALL | re.IGNORECASE)
+    cleaned = re.sub(r'<[^<>]*invoke\s+name=.*?</[^<>]*invoke\s*>', "", cleaned,
+                     flags=re.DOTALL | re.IGNORECASE)
+    cleaned = re.sub(r'<[^<>]*DSML[^<>]*>', "", cleaned, flags=re.IGNORECASE).strip()
+    return calls, cleaned
 
 
 @dataclass(frozen=True)
@@ -157,6 +212,19 @@ class DeepSeekClient(LLMClient):
 
         data = self._post(payload)
         try:
-            return data["choices"][0]["message"]
+            message = data["choices"][0]["message"]
         except (KeyError, IndexError, TypeError) as exc:
             raise LLMError(f"Unexpected DeepSeek response shape: {data}") from exc
+
+        # Recover any tool call the model leaked into text instead of tool_calls.
+        if not message.get("tool_calls"):
+            recovered, cleaned = _recover_tool_calls(message.get("content") or "")
+            if recovered:
+                logger.warning(
+                    "Recovered %d tool call(s) leaked into DeepSeek content: %s",
+                    len(recovered),
+                    [c["function"]["name"] for c in recovered],
+                )
+                message["tool_calls"] = recovered
+                message["content"] = cleaned or None
+        return message
