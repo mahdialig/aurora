@@ -1,0 +1,28 @@
+name: Deploy to VPS
+
+# Pull-based deploy: the self-hosted runner on the VPS (outbound-only) picks this
+# up and deploys locally. No inbound access to the VPS is required.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-vps
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, aurora]
+    steps:
+      - name: Pull, install, test, restart
+        run: |
+          set -euo pipefail
+          cd /home/mahdi/aurora
+          git fetch --quiet origin main
+          git reset --hard origin/main
+          ./.venv/bin/python -m pip install -q -e ".[dev]"
+          ./.venv/bin/python -m pytest -q       # gate: a red build does not restart the bot
+          sudo systemctl restart aurora-bot
+          sleep 3
+          systemctl is-active aurora-bot
