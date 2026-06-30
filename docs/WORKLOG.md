@@ -209,3 +209,12 @@ Append a dated entry at the end of every working session.
     button (`rdone:<id>` → `ledger.mark_done`). Config knobs `AURORA_REMINDER_{ENABLED,TIME,STALE_DAYS}`;
     scheduler start-gate widened. Tests: `test_remind.py` (planner cases + state). 165 tests pass, ruff clean.
     **Not yet seen fire live** (next scheduled 09:00 Jakarta; can force-test by setting a due item + waiting).
+  - **"Definition of done" standard** (D20): live-use surfaced Aurora declaring a withholding-tax task "all
+    set ✅" when an email only confirmed vOffice *received* the bukti potong — she missed that paying DJP is
+    the real obligation. User's call: adopt a Scrum-style definition-of-done rather than a tax-specific
+    patch. Added a standing `SYSTEM_PROMPT` clause: don't call anything done/"all set" (in chat or via
+    `mark_done`) unless the actual goal is achieved + confirmed; a counterparty's receipt/acknowledgement is
+    only one step; money/tax/deadline/filing/other-party items count as in-progress until the outcome is
+    confirmed; when unsure, state what's confirmed, name what's open, offer to track it. The *specific*
+    bukti-potong→DJP workflow knowledge is deferred to the procedural-playbooks layer (slice 2) — its
+    motivating example. (User also flagged an `.env` secret accidentally pasted into chat → advised rotating.)

@@ -156,3 +156,17 @@ reminders or progress check-ins. Fixes, both small and on existing machinery:
   nudge has a ✅ Done button (`rdone:` → `mark_done`). Chose a once-daily scheduled pass (simple, matches a
   daily agenda cadence) over riding the 10-min notifier loop; revisit if mid-day items need faster pickup.
   This is the same 4-touch scheduler recipe slice-4's reflection job will reuse.
+
+### D20 — Aurora applies a "definition of done" (receipt ≠ completion)
+Trigger (session 10): Aurora read an email where vOffice confirmed receiving the *bukti potong* and told
+the user "you're all set ✅" — but that's only step 1 of a withholding-tax obligation; the real task is
+**paying DJP**, which she knew nothing about. She declared an obligation complete from a counterparty's
+receipt-confirmation. The user's framing: adopt a **definition-of-done standard** (à la Scrum) rather than
+patch tax specifically. So a standing clause in `SYSTEM_PROMPT`: before calling anything done/"all set" — in
+chat or by marking a ledger item complete — the actual GOAL must be achieved and **confirmed** (by the user
+or unambiguous evidence), not merely a step acknowledged. A third party receiving/acknowledging closes only
+that step; for money/taxes/deadlines/filings/another party's action, "received" = **in progress**. When
+steps remain or she's unsure, she states what's confirmed, names what's open, and offers to track it —
+she doesn't close the loop on the user's behalf. This is the *general* judgment fix; the *specific* workflow
+knowledge ("for withholding tax, bukti-potong is step 1, DJP payment is the real done") belongs in the
+**procedural playbooks** layer (Phase 2 slice 2) — this is its motivating example.
