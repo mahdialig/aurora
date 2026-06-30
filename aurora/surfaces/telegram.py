@@ -103,14 +103,39 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     pref = profile.get("preferred_name")
     name = (pref.value if pref else None) or memory.display_name() or update.effective_user.first_name
     nudge = (
-        " New here? /onboard sets up how I work for you."
+        " New here? /onboard sets up how I work for you. /help lists everything I can do."
         if profile.is_empty()
-        else " /memory shows what I know; /profile shows your preferences."
+        else " /help lists everything I can do; /profile shows your preferences."
     )
     await update.effective_message.reply_text(
         f"Hi {name} — Aurora here. Just talk to me: ask what's new in your email, ask me to "
         "reply to someone, or tell me things to remember." + nudge
     )
+
+
+HELP_TEXT = (
+    "Just talk to me — ask what's new in your email, ask me to reply to someone, or tell me "
+    "things to remember. Commands:\n"
+    "\n*Getting set up*\n"
+    "/onboard — set up how I work for you (a few quick questions)\n"
+    "/profile — show your preferences · /profile forget <key> — clear one\n"
+    "\n*Email & staying on top of things*\n"
+    "/inbox — what's worth knowing in your unread mail\n"
+    "/brief — your daily brief on demand\n"
+    "/agenda (/waiting) — open commitments I'm tracking\n"
+    "/track <thing> — track a commitment · /done <id> — mark it done\n"
+    "\n*What I remember*\n"
+    "/remember <text> — save a fact · /memory — list them · /forget <n|text> — drop one\n"
+    "\n*Housekeeping*\n"
+    "/new — clear our recent chat (keeps what I've learned)\n"
+    "/whoami — your Telegram id · /help — this list"
+)
+
+
+@_allowed_only
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/help — list what Aurora can do."""
+    await update.effective_message.reply_text(HELP_TEXT, parse_mode="Markdown")
 
 
 @_allowed_only
@@ -869,6 +894,7 @@ def build_application(config: Config, llm: LLMClient, memory: MemoryStore | None
     )
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("whoami", whoami))
     app.add_handler(CommandHandler("remember", remember))
     app.add_handler(CommandHandler("memory", memory_cmd))
