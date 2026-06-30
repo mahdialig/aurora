@@ -45,13 +45,14 @@ Prioritized. Move items to WORKLOG when done. Keep "Next up" honest.
   keyed on unread message-ids (reading mail elsewhere doesn't notify); live feedback loop + live compose
   not yet exercised through the bot (unit-tested + dry-run verified only).
 - `.sim/` cost analysis — now in `.gitignore` (treated as local scratch).
-- **VPS: bot token leaks into journald** — httpx logs the full Telegram API URL (incl. the token) at
-  INFO. Low risk (only `matajari`/root can read the journal) but worth silencing: raise httpx log level
-  to WARNING in the bot. (token is already in `.env`.)
-- **VPS: Gmail OAuth token expiry** — `token.json` was copied from the laptop; the Google app is still
-  in "Testing" so it may expire ~weekly and the bot can't re-auth headlessly (no browser on the VPS).
-  Fix: publish the OAuth app to Production (stops expiry); until then, re-auth on the laptop and re-`scp`
-  `data/token.json`. (Carried from the laptop OAuth note above.)
+- ~~VPS: bot token leaks into journald~~ ✅ **Fixed** (session 9): httpx logger set to WARNING so the
+  Telegram token no longer appears in logs.
+- ~~VPS: Gmail OAuth token expiry~~ ✅ **Resolved** (session 9): OAuth app published to **Production**
+  (project `aurora-500907`), so refresh tokens no longer expire after ~7 days; re-authed magyp.magyp@
+  gmail.com to mint a fresh non-expiring token and deployed it. Also hardened in code: an expired/
+  revoked refresh token now raises `GmailAuthError` (skip Gmail, keep running) and the bot sends a
+  Telegram alert at startup instead of failing silently. NOTE: the `gmail.modify` scope is "restricted",
+  so adding *other* users would require Google verification — fine for the single owner.
 - **M4 (don't-miss-a-thing)**: brief/scheduler are unit-tested + import-verified but NOT yet driven
   through the running bot (no live brief send / live "Track this" tap yet). Auto-capture quality
   depends on the classifier's new `commitment` field — watch for noise. Activity log only records

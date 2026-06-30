@@ -148,6 +148,8 @@ Append a dated entry at the end of every working session.
   Actions runner** (v2.335.1) as a `matajari` service; `.github/workflows/deploy.yml` on push to `main`
   does `git reset --hard origin/main` → `pip install` → `pytest` (gate) → `systemctl restart aurora-bot`.
   First run **succeeded end-to-end in 16s**. Deploy loop verified.
-- Follow-ups logged: bot token leaks into journald (silence httpx INFO); Gmail token expiry on VPS
-  (publish OAuth app to Production). Still to do live by the user: message the bot, try `/brief`
-  `/agenda` `/track` `/done`.
+- Follow-ups (both **done** same session): (1) silenced the Telegram token in logs (httpx→WARNING);
+  (2) Gmail token expiry — published the OAuth app to **Production** via the Chrome extension, re-authed
+  magyp.magyp@gmail.com (fresh non-expiring token, verified working, deployed to VPS), and hardened the
+  code (expired refresh → GmailAuthError, skip + Telegram alert, no crash-loop). 129 tests pass.
+- Still to do live by the user: message the bot on Telegram and try `/brief` `/agenda` `/track` `/done`.

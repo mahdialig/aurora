@@ -79,7 +79,9 @@ Telegram; she uses tools (currently email) to act, and reports in her own words.
   State persists in `data/notify_state.json`, `data/schedule_state.json`. Now truly 24/7.
 - Connected mailboxes:
   - **personal Gmail** `magyp.magyp@gmail.com` (OAuth, scope `gmail.modify`). Google Cloud
-    project: `aurora-500907` (OAuth app in "Testing" → token may expire ~weekly).
+    project: `aurora-500907`, OAuth app **published to Production** (session 9) → refresh token no
+    longer expires. Re-auth (if ever needed): `python -m aurora.sources.gmail_auth` on the laptop,
+    then `scp data/token.json` to the VPS and restart.
   - **work email** `mahdi.ali@matajari.co.id` on dapurhosting (IMAP/SMTP `d001.dapurhosting.com`,
     993/465 SSL). Creds in `.env` (`WORK_EMAIL`/`WORK_PASSWORD`); both gitignored.
 
