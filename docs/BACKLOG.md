@@ -3,16 +3,16 @@
 Prioritized. Move items to WORKLOG when done. Keep "Next up" honest.
 
 ## Next up (in order)
-1. **VPS deployment** — so proactive notifications AND the daily brief run 24/7 (currently
-   laptop-only; both pause when the bot is off). systemd service for the bot; `.env`/
-   `credentials.json`/`data/` onto `prod`. Publish the Google OAuth app to Production to stop the
-   ~weekly token expiry. Now doubly motivated: the M4 morning brief only matters if always-on.
-2. **Self-learning upgrade (Phase 2)** — make D3's "correct" half real (see D17): onboarding
+1. **Self-learning upgrade (Phase 2)** — make D3's "correct" half real (see D17): onboarding
    interview (`/onboard`), three-layer memory (episodic / semantic / procedural), confirm-before-save
    write gate with scope+provenance+dedup, and the nightly **reflection job** that consolidates
    corrections + decays stale entries. Capture corrections (edited/cancelled drafts) as lessons.
-3. **Calendar (Google) — Phase 3** — feed meetings/deadlines into the ledger + brief; conflict checks,
+2. **Calendar (Google) — Phase 3** — feed meetings/deadlines into the ledger + brief; conflict checks,
    time-blocking. Then tasks (largely the ledger itself), Obsidian notes, finance.
+
+## Done
+- **VPS deployment** ✅ (session 9) — Aurora runs 24/7 on `prod` under systemd; pull-based deploys via
+  a self-hosted Actions runner (`git push origin main`). See **D18** + STATE "Live runtime".
 
 ## M4 follow-ups (don't-miss-a-thing engine — landed; polish later)
 - **Proactive chasing**: have the notifier/scheduler nudge on ledger items as due dates approach and
@@ -44,7 +44,14 @@ Prioritized. Move items to WORKLOG when done. Keep "Next up" honest.
   on next start; classifier is per-email not per-thread (a chatty thread can ping repeatedly); seen-state
   keyed on unread message-ids (reading mail elsewhere doesn't notify); live feedback loop + live compose
   not yet exercised through the bot (unit-tested + dry-run verified only).
-- `.sim/` cost analysis is uncommitted — decide: commit as docs or add to `.gitignore`.
+- `.sim/` cost analysis — now in `.gitignore` (treated as local scratch).
+- **VPS: bot token leaks into journald** — httpx logs the full Telegram API URL (incl. the token) at
+  INFO. Low risk (only `matajari`/root can read the journal) but worth silencing: raise httpx log level
+  to WARNING in the bot. (token is already in `.env`.)
+- **VPS: Gmail OAuth token expiry** — `token.json` was copied from the laptop; the Google app is still
+  in "Testing" so it may expire ~weekly and the bot can't re-auth headlessly (no browser on the VPS).
+  Fix: publish the OAuth app to Production (stops expiry); until then, re-auth on the laptop and re-`scp`
+  `data/token.json`. (Carried from the laptop OAuth note above.)
 - **M4 (don't-miss-a-thing)**: brief/scheduler are unit-tested + import-verified but NOT yet driven
   through the running bot (no live brief send / live "Track this" tap yet). Auto-capture quality
   depends on the classifier's new `commitment` field — watch for noise. Activity log only records

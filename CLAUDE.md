@@ -45,8 +45,19 @@ Windows; a virtualenv lives at `.venv`. Use the venv interpreter explicitly.
 ./.venv/Scripts/python.exe -m aurora.sources.gmail_auth
 ```
 
-Restarting the bot: it's a background process; stop the existing `python ... aurora.surfaces.telegram`
-process, then relaunch. Restarting clears in-memory state (conversation threads, pending actions).
+The above run command is for **local dev only**. In production the bot runs **on the VPS under systemd**
+(see "Deployment" below) — do NOT start a second instance locally while the VPS bot is up (only one
+Telegram poller may run at once). Restarting (either place) clears in-memory state (conversation threads,
+pending actions).
+
+Production runtime (VPS, `ssh prod`):
+```bash
+sudo systemctl status aurora-bot          # health
+sudo systemctl restart aurora-bot         # restart
+journalctl -u aurora-bot -f               # live logs
+```
+Deploy by pushing to `main` (`git push origin main`) — a self-hosted Actions runner on the VPS pulls,
+tests, and restarts. See `docs/DECISIONS.md` D18.
 
 ## Architecture
 
@@ -81,10 +92,17 @@ conversation thread, in RAM). Draft bodies are deliberately NOT stored in the th
 Gitignored: `.env` (DeepSeek key, Telegram token+allowed user id, model, autonomy mode, and later
 work IMAP creds), `credentials.json` (Google OAuth client), `data/` (sqlite/token/memory). These
 already exist locally — don't recreate them. Telegram bot `@paagentaurorabot` is locked to the
-user's id. Personal Gmail is connected (`gmail.modify`); work IMAP is not yet.
+user's id. Both mailboxes are connected: personal Gmail (`gmail.modify`) and work IMAP/SMTP.
 
-## Deployment target (VPS)
+## Deployment (VPS) — LIVE
 
-Eventual home is the user's VPS (`ssh prod`, work under `/home/mahdi`, `sudo` for privileged ops).
-Currently the bot runs on the laptop only. Treat the VPS as production-adjacent: confirm before
-destructive or outward-facing actions there.
+Aurora runs 24/7 on the VPS: `ssh prod` (user `matajari`, `103.150.194.135`), app at
+`/home/mahdi/aurora`, under systemd `aurora-bot.service` (`Restart=always`, enabled at boot).
+`/home/mahdi` is owned by `matajari` — **no sudo needed for file ops there** (sudo is still needed, and
+is passwordless, for system-level things: apt, `/etc/systemd`, the runner service).
+
+Deploy = `git push origin main` → a **self-hosted GitHub Actions runner** on the VPS (outbound-only;
+inbound :22 is IP-restricted) pulls, runs `pytest`, and restarts the service
+(`.github/workflows/deploy.yml`). Repo `github.com/mahdialig/aurora` (private; VPS uses a read-only
+deploy key). Secrets (`.env`, `credentials.json`, `data/`) live on the VPS only and survive deploys.
+Treat the VPS as production: confirm before destructive or outward-facing actions there. See D18.

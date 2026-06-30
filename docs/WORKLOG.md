@@ -126,3 +126,28 @@ Append a dated entry at the end of every working session.
     one-tap "➕ Track this" button (`on_track_button`, deduped by `email:<account>:<id>`). Tests extend
     `test_notify_job.py`.
 - Not yet driven live through the running bot (brief send / Track-this tap) — see BACKLOG M4 follow-ups.
+
+## Session 9 — VPS deployment, 24/7 (2026-06-30)
+- **Aurora is now live on the VPS** (`prod`, `103.150.194.135`, Ubuntu 24.04), running 24/7 under
+  systemd and auto-restarting. The laptop bot is retired (only one Telegram poller allowed). See **D18**.
+- Probed the box first (read-only): login is **`matajari`** (passwordless sudo; no `mahdi` user),
+  Python 3.12.3, `pip`/`ensurepip` missing, git/systemd/rsync present, **inbound :22 IP-restricted**
+  but **outbound HTTPS to GitHub works**.
+- **The sudo-under-`/home/mahdi` annoyance** (user's P.S.): root cause was the dir being `root:root`.
+  Fixed with `sudo chown -R matajari:matajari /home/mahdi` → file ops there need no sudo now.
+- Steps: `apt install python3.12-venv`; committed the M4 (+ prior uncommitted) work and pushed to the
+  new private repo **`github.com/mahdialig/aurora`** (`main`); added `.sim/` to `.gitignore`; verified
+  no secrets staged. VPS clones via a **read-only deploy key** (chosen over a PAT — zero user effort;
+  outbound SSH to GitHub is open, inbound restriction untouched). Built venv, `pip install -e .[dev]`,
+  config loads with real `.env`, **127 tests pass on the VPS**.
+- `scp`'d secrets + data (`.env`, `credentials.json`, `data/{memory.md,notify_state.json,token.json}`),
+  chmod 600 on secrets.
+- **systemd**: `aurora-bot.service` (`User=matajari`, `Restart=always`, enabled at boot). Live logs
+  confirm Telegram connected + Notifier + Scheduler started (Asia/Jakarta, brief 07:00, weekly Mon 07:30).
+- **Pull-based CI/CD** (inbound is IP-restricted, so no push-deploy): installed a **self-hosted GitHub
+  Actions runner** (v2.335.1) as a `matajari` service; `.github/workflows/deploy.yml` on push to `main`
+  does `git reset --hard origin/main` → `pip install` → `pytest` (gate) → `systemctl restart aurora-bot`.
+  First run **succeeded end-to-end in 16s**. Deploy loop verified.
+- Follow-ups logged: bot token leaks into journald (silence httpx INFO); Gmail token expiry on VPS
+  (publish OAuth app to Production). Still to do live by the user: message the bot, try `/brief`
+  `/agenda` `/track` `/done`.

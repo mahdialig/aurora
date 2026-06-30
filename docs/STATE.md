@@ -5,7 +5,7 @@
 > folder, then give a 4–6 line recap and ask what to work on. Keep this file current
 > at the end of each working session.
 
-_Last updated: 2026-06-30 (end of session 8)._
+_Last updated: 2026-06-30 (end of session 9 — deployed to VPS)._
 
 ## One-line status
 Aurora is a Telegram-based conversational AI assistant that reads, searches, replies to, and
@@ -60,17 +60,23 @@ Telegram; she uses tools (currently email) to act, and reports in her own words.
   - **Email auto-capture**: the notify classifier now also suggests a `commitment`; notifications get
     a one-tap "➕ Track this" button (deduped by `email:<account>:<id>`). See D14–D17.
   - **127 tests pass; ruff clean.** Unit + import verified; not yet driven live through the bot.
-- **Next: VPS deployment** so notifications + the daily brief run 24/7 (currently laptop-only); then
-  the self-learning upgrade (onboarding + reflection, D17); then calendar.
+- **VPS deployment** ✅ (session 9): Aurora now runs 24/7 on the VPS under systemd; deploy via
+  `git push origin main` (self-hosted runner). See **D18**.
+- **Next:** the self-learning upgrade (onboarding `/onboard` + reflection job, D17); then calendar.
 
 ## Live runtime (current)
-- The bot runs on **this laptop** via `python -m aurora.surfaces.telegram` (a long-running
-  background process during sessions). It is NOT yet deployed to the VPS.
+- The bot runs **on the VPS** (`prod`, `103.150.194.135`, Ubuntu 24.04) under **systemd**:
+  `aurora-bot.service` (`User=matajari`, `Restart=always`, **enabled at boot**) from
+  `/home/mahdi/aurora`, venv at `.venv`. Manage with `sudo systemctl {status,restart} aurora-bot` and
+  `journalctl -u aurora-bot -f`. The laptop bot stays OFF (only one Telegram poller allowed).
+- **Deploys are pull-based**: push to `main` → a **self-hosted GitHub Actions runner** on the VPS
+  (`actions.runner.mahdialig-aurora.aurora-vps`, runs as `matajari`) pulls + tests + restarts. No
+  inbound access needed (VPS inbound :22 is IP-restricted). Repo: `github.com/mahdialig/aurora`
+  (private; VPS clones via a read-only deploy key). See **D18**.
 - Telegram bot: **@paagentaurorabot**, locked to the user's Telegram id `6959305748`.
 - Model: `deepseek-v4-flash`. Autonomy mode: `approve_all` (sending always needs a tap).
-- Proactive notifications: ON (`AURORA_NOTIFY_ENABLED`, default true), checks every 600s
-  (`AURORA_NOTIFY_INTERVAL_SECONDS`). Seen-mail state persists in `data/notify_state.json`.
-  Only runs while the bot is running (laptop) → another reason to deploy to the VPS.
+- Proactive notifications: ON, every 600s. Daily brief 07:00 / weekly review Mon 07:30 (Asia/Jakarta).
+  State persists in `data/notify_state.json`, `data/schedule_state.json`. Now truly 24/7.
 - Connected mailboxes:
   - **personal Gmail** `magyp.magyp@gmail.com` (OAuth, scope `gmail.modify`). Google Cloud
     project: `aurora-500907` (OAuth app in "Testing" → token may expire ~weekly).

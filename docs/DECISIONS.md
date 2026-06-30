@@ -111,6 +111,19 @@ catch-up, no-double-send, and DST-safety for free. Timezone via `AURORA_TIMEZONE
 `llm.complete` over ledger + a small activity log (`aurora/activity/`), with a quiet-day path that
 sends nothing.
 
+### D18 — VPS deployment: systemd service + self-hosted Actions runner (pull-based)
+Aurora now runs 24/7 on the VPS (`prod`, `103.150.194.135`, Ubuntu 24.04) under **systemd**
+(`aurora-bot.service`, `User=matajari`, `Restart=always`, enabled at boot) from `/home/mahdi/aurora`.
+Deployment is **pull-based** because the VPS's **inbound port 22 is IP-restricted** (GitHub's cloud
+runners can't SSH in): a **self-hosted GitHub Actions runner** on the VPS (service, runs as `matajari`)
+makes only **outbound HTTPS 443** connections, and `.github/workflows/deploy.yml` (on push to `main`)
+does `git reset --hard origin/main` → `pip install -e .[dev]` → `pytest` (gate) → `systemctl restart
+aurora-bot`. The private repo is `github.com/mahdialig/aurora`; the VPS clones via a **read-only deploy
+key**. Gitignored secrets (`.env`, `credentials.json`, `data/`) live on the VPS and survive deploys
+(`reset --hard` leaves untracked files; the workflow never `git clean`s). The "needs sudo under
+`/home/mahdi`" annoyance was the dir being `root`-owned → fixed with `chown -R matajari:matajari`. Only
+one Telegram poller may run at once, so the laptop bot stays off. (Supersedes the laptop-only note in D10.)
+
 ### D17 — (planned) Learn preferences via onboarding + observe-and-correct
 Not yet built; recorded so the direction is durable. Aurora will discover the user's preferences with
 a short `/onboard` interview (proven week-1 EA questions) to seed a profile, then learn by the user's
