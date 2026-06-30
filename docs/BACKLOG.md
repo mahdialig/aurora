@@ -3,6 +3,15 @@
 Prioritized. Move items to WORKLOG when done. Keep "Next up" honest.
 
 ## Next up (in order)
+0. **Slice α — structured multi-step tasks ("definition of done")** ← **DO THIS FIRST** (design locked in
+   **D21**). Give a commitment an optional checklist where each step = one DoD item (0 steps = today's flat
+   task, backward-compatible, hand-editable markdown). At capture Aurora **proposes** content-derived steps
+   and the user owns the granularity (`✅ Track these / ✏️ Yes, but adjust / ✖ Not now`, adjust = collapse/
+   edit loop); step tick-off is **suggest-and-confirm**, never silent; `mark_done` guards on open steps and
+   the last step auto-completes; per-task `remind` opt-in + due-with-**time**; reminders chase the open step.
+   Touches `aurora/ledger/store.py`, `aurora/tools/ledger_tools.py`, `aurora/surfaces/telegram.py`,
+   `aurora/remind/nudge.py`, `aurora/brief/compose.py`. Sits **before** Phase 2 slice 2 (playbooks fill these
+   steps). D20's prompt clause is the interim guardrail until this ships.
 1. **Self-learning upgrade (Phase 2)** — make D3's "correct" half real (see D17). Build incrementally:
    - **Slice 1 — onboarding interview (`/onboard`)** ✅ (session 10): week-1 EA questions → new keyed,
      hand-editable `ProfileStore` (`data/profile/profile.md`), rendered into the chat prompt + notify

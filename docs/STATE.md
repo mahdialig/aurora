@@ -5,7 +5,7 @@
 > folder, then give a 4–6 line recap and ask what to work on. Keep this file current
 > at the end of each working session.
 
-_Last updated: 2026-06-30 (session 10 — Phase 2 slice 1 (/onboard) + a clock + proactive reminders/check-ins; next: live-verify, then slice 2)._
+_Last updated: 2026-06-30 (session 10 — slice 1 (/onboard) + clock + reminders + definition-of-done standard; recorded the structured multi-step-tasks design (D21) as the next build, "slice α")._
 
 ## One-line status
 Aurora is a Telegram-based conversational AI assistant that reads, searches, replies to, and
@@ -66,7 +66,16 @@ Telegram; she uses tools (currently email) to act, and reports in her own words.
   `git push origin main` (self-hosted runner). See **D18**. Gmail OAuth published to Production (token
   no longer expires); Telegram token no longer logged. Both session-9 follow-ups closed.
 
-## Next up — Phase 2: make Aurora *learn* you (in progress)
+## Next up — **Slice α: structured multi-step tasks (do this first)**
+Before continuing Phase 2, build **slice α** — full design locked in **D21**. Give a commitment an optional
+checklist where each step = one "definition of done" item (0 steps = today's flat task; backward-compatible,
+hand-editable). Aurora **proposes** content-derived steps at capture (user owns granularity via
+`Track these / Yes, but adjust / Not now`); tick-off is **suggest-and-confirm**, never silent; `mark_done`
+guards on open steps + last step auto-completes; per-task `remind` opt-in + due-with-**time**; reminders chase
+the open step. This makes the definition-of-done (D20) bite at *ingestion + structure*, not just the prompt.
+It sits before Phase 2 slice 2 (playbooks later fill these step templates). See BACKLOG item 0.
+
+## Next up — Phase 2: make Aurora *learn* you (in progress, after slice α)
 The roadmap's next milestone (BACKLOG #1; design in **D17**). Goal: complete D3's "correct" half so
 Aurora discovers and adapts to the user's preferences instead of only ever *adding* to a flat memory.
 Scope (build incrementally, one slice per session):

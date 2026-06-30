@@ -170,3 +170,62 @@ steps remain or she's unsure, she states what's confirmed, names what's open, an
 she doesn't close the loop on the user's behalf. This is the *general* judgment fix; the *specific* workflow
 knowledge ("for withholding tax, bukti-potong is step 1, DJP payment is the real done") belongs in the
 **procedural playbooks** layer (Phase 2 slice 2) — this is its motivating example.
+
+### D21 — (designed, not built) Structured multi-step tasks: a "definition of done" at ingestion
+**Status: agreed design, deferred to a future session as build "slice α" — to be done BEFORE Phase 2
+slice 2 (playbooks).** D20 made Aurora *interpret* completion carefully in chat, but tasks are still flat
+one-liners, so "done" is a single flag and there's nowhere to record partial progress. This makes the DoD
+bite at **ingestion + structure**, while staying a hand-editable flat markdown notebook (D14) — not Jira.
+
+**Model.** A commitment optionally owns a checklist; **each step = one definition-of-done item**. Zero steps
+= a flat task = a single DoD item = today's exact behavior (fully backward-compatible, zero migration). Steps
+are GitHub-style task-list child lines under the parent:
+```
+- Reply to Finnet re: OpenWay tender · kind:reply owner:me status:open due:2026-07-03T17:00 remind:on id:c7 src:email:work:ab12 created:... updated:...
+  - [ ] Draft & send the reply
+  - [ ] Prepare File A
+  - [ ] Prepare File B
+```
+New per-task metadata (both space-free, fit the existing `key:val` parser): `due` may be a date **or**
+date+time (`2026-07-03T17:00`); `remind:on|off` is a per-task reminder opt-in. `is_done` = *all steps done*
+(or the status flag when flat). Steps addressed by **parent id + index/text** (no per-step ids → file stays
+clean + hand-editable).
+
+**Ingestion — Aurora proposes, the user owns granularity (the key correction).** She does NOT assume steps.
+She derives **candidate** steps from the actual content (e.g. reads the email and sees it asks for File A +
+File B), then shows a proposal:
+> "…they're asking for two files (A and B) by Thu 3 Jul, 5pm. Here are the suggested task items:"
+> ☐ Draft & send the reply · ☐ Prepare File A · ☐ Prepare File B
+> `[ ✅ Track these ]` `[ ✏️ Yes, but adjust ]` `[ ✖ Not now ]`
+- **Track these** → writes the task with those steps, then asks the reminder opt-in.
+- **Yes, but adjust** → conversational edit loop: drop/add/rename a step, change the due, **or collapse to a
+  single DoD item** — she re-proposes the updated checklist with the same 3 buttons until it's right. (The
+  "just track it as one item" choice lives HERE, not as its own button.)
+- **Not now** → nothing tracked.
+
+**Tick-off — suggest, never decide (the second correction).** When an email/event implies a step is done,
+she proposes it with a button, never silently checks it: "vOffice confirmed receipt — tick off *Send bukti
+potong*? The DJP payment step would still be open." `[ ✅ Tick it off ]` `[ Not yet ]`. (An optional
+"auto-tick when truly unambiguous" toggle is left for later, default OFF, not built until a clear case
+appears — user couldn't name one either.)
+
+**Kept from the earlier sketch:** `mark_done` on a task with open steps **confirms** rather than silently
+completing (the guard); checking the **last** step **auto-completes** the parent; `/agenda` + brief show
+`1/3` progress.
+
+**Reminders (folds in the Scene-4 notes):** the proactive pass honors the per-task `remind` flag, **chases
+the specific open step** (not the whole item, not the done half), and shows the due **time**. Firing a nudge
+as a due *time* approaches (not just the day) is a fast-follow, not v1.
+
+**Store/tool delta:** `Step(text, done)`; `Commitment` += `steps`, `remind`, time-aware `due`; `is_done`
+recomputed; `add(..., steps=, remind=)`; `set_step(id, step, done)`; `mark_done(id, force=False)` guard;
+`open_steps(id)`. Capture = a proposal card; tick-off = a suggestion card — both reuse the existing
+stash + callback pattern (new `callback_data` prefixes). Consumers to update: ledger `render_for_prompt`,
+`brief/compose`, `remind/nudge.plan_nudges`, `/agenda`.
+
+**Sequencing (slice α).** v1: store (steps + remind + due-time, tolerant parse) → capture proposal flow →
+tick-off suggestion flow → mark_done guard + auto-complete → agenda/brief/reminder render + honor `remind` +
+chase open step. Fast-follow: due-time-of-day nudges; the auto-tick toggle. **Relationship to Phase 2 slice
+2 (playbooks):** steps are the *container*; playbooks are the *knowledge that fills them* with known step
+templates for recurring workflows (e.g. withholding tax). Slice α comes first; D20's prompt clause is the
+interim guardrail until it lands.
