@@ -61,15 +61,24 @@ def plan_nudges(commitments, today_iso: str, *, stale_days: int = 3, last_checki
     for c in commitments:
         if c.is_done:
             continue
+        # Honor the per-task reminder opt-out (default on → existing items still nudge).
+        if not getattr(c, "remind", True):
+            continue
 
-        # Dated items → deadline reminders (repeat daily until done).
+        # For a checklist item, chase the specific OPEN step, not the whole task.
+        open_steps = c.open_step_texts() if getattr(c, "steps", ()) else []
+        subject = open_steps[0] if open_steps else c.text
+
+        # Dated items → deadline reminders (repeat daily until done). Compare on the
+        # date portion so a timed due (2026-07-03T17:00) classifies correctly.
         if c.due:
-            if c.due < today_iso:
-                out.append(Nudge(c.id, f"⚠️ Overdue: {c.text} (was due {c.due})", "overdue", False))
-            elif c.due == today_iso:
-                out.append(Nudge(c.id, f"⏰ Due today: {c.text}", "due_today", False))
-            elif c.due == tomorrow_iso:
-                out.append(Nudge(c.id, f"📅 Due tomorrow: {c.text}", "due_tomorrow", False))
+            due_date = c.due[:10]
+            if due_date < today_iso:
+                out.append(Nudge(c.id, f"⚠️ Overdue: {subject} (was due {c.due})", "overdue", False))
+            elif due_date == today_iso:
+                out.append(Nudge(c.id, f"⏰ Due today: {subject}" + (f" (by {c.due[11:]})" if "T" in c.due else ""), "due_today", False))
+            elif due_date == tomorrow_iso:
+                out.append(Nudge(c.id, f"📅 Due tomorrow: {subject}", "due_tomorrow", False))
             # Further out → leave it to the daily brief's horizon.
             continue
 
@@ -86,9 +95,9 @@ def plan_nudges(commitments, today_iso: str, *, stale_days: int = 3, last_checki
             if since is not None and since < stale_days:
                 continue  # already checked in recently; give it room
         if c.owner == "other":
-            out.append(Nudge(c.id, f"🔄 Still waiting to hear back on: {c.text}? (open since {ref})", "waiting", True))
+            out.append(Nudge(c.id, f"🔄 Still waiting to hear back on: {subject}? (open since {ref})", "waiting", True))
         else:
-            out.append(Nudge(c.id, f"👀 How's this going: {c.text}? (no update since {ref})", "progress", True))
+            out.append(Nudge(c.id, f"👀 How's this going: {subject}? (no update since {ref})", "progress", True))
 
     return out
 

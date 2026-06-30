@@ -53,9 +53,11 @@ def _due_window(commitments, today_iso: str, days: int):
     for c in commitments:
         if c.is_done:
             continue
-        if c.due and c.due < today_iso:
+        # Compare on the date portion: a due may carry a time (2026-07-03T17:00).
+        due_date = c.due[:10] if c.due else ""
+        if due_date and due_date < today_iso:
             overdue.append(c)
-        elif c.due and c.due <= horizon:
+        elif due_date and due_date <= horizon:
             due_soon.append(c)
         elif not c.due and c.owner == "me":
             undated.append(c)
@@ -64,7 +66,12 @@ def _due_window(commitments, today_iso: str, days: int):
 
 def _fmt(c) -> str:
     due = f" (due {c.due})" if c.due else ""
-    return f"{c.text} [{c.kind}]{due}"
+    prog = ""
+    progress = getattr(c, "progress", None)
+    if progress is not None:
+        done_n, total = progress
+        prog = f" [{done_n}/{total} done]"
+    return f"{c.text} [{c.kind}]{due}{prog}"
 
 
 def build_brief_prompt(commitments, handled, *, today_iso, name, weekly, horizon_days) -> list[Message]:

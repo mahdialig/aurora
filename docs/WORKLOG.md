@@ -218,3 +218,46 @@ Append a dated entry at the end of every working session.
     confirmed; when unsure, state what's confirmed, name what's open, offer to track it. The *specific*
     bukti-potong→DJP workflow knowledge is deferred to the procedural-playbooks layer (slice 2) — its
     motivating example. (User also flagged an `.env` secret accidentally pasted into chat → advised rotating.)
+
+## Session 11 — Slice α: structured multi-step tasks ("definition of done") (2026-06-30)
+- **Built slice α** end-to-end (design = **D21**); **182 tests pass** (was 165, +17), ruff clean. User
+  decisions this session: `remind` **defaults ON** with an explicit accept/opt-out two-button message;
+  tick-off is **tool-driven only** in v1; the proposal card is **always shown** for conversational capture.
+- **Store** (`aurora/ledger/store.py`): new `Step(text, done)`; `Commitment` += `steps: tuple[Step,...]`
+  and `remind: bool = True`. `is_done` = all-steps-done when stepped, else the status flag (flat unchanged).
+  Added `progress`/`open_step_texts`; serialize steps as GitHub-style `  - [ ] …` child lines + parse them
+  (`_STEP_RE`, attached to the most recent parent); `remind:off` written only when off (default-on omitted →
+  backward-compatible). New `set_step` (auto-completes the parent on the last step), `open_steps`,
+  `mark_done` (ticks all steps); `add(steps=, remind=)`; `update` accepts `remind`. **Bug fix:** a timed
+  `due` (`2026-07-03T17:00`) broke `==`/`due_on_or_before` comparisons → added `_due_date()` (date prefix)
+  and used it in `query`, the brief, and the reminder planner.
+- **Tools** (`aurora/tools/ledger_tools.py`): replaced inline `add_commitment` with **`propose_commitment`**
+  (action tool, derives candidate steps) + added **`suggest_step_done`** (action tool); `mark_done` now
+  **guards** — returns `needs_confirmation` + the open steps unless `force:true`.
+- **`aurora/ledger/propose.py`** (new): `revise_steps(llm, payload, instruction)` — one LLM call returning
+  `{text, due, steps[]}` (tolerates ```json fences), with unchanged-payload fallback (mirrors
+  `profile/interview.distill`). Powers the "adjust" loop.
+- **Telegram** (`surfaces/telegram.py`): `_propose_action` now handles `propose_commitment` (→ proposal
+  card, `prop:track|adjust|cancel`) and `suggest_step_done` (→ tick card, `tick:on|off`). New handlers
+  `on_proposal_button`, `on_remind_pref` (`prem:on|off`, after Track these), `on_tick_button`; "adjust" is a
+  one-shot conversational loop (`chat_data["proposing"]` + a `chat()` interception mirroring onboarding) that
+  re-proposes via `revise_steps`. `/done <id> [force]` and `on_reminder_done` now respect the guard
+  (the reminder Done button ticks the chased open step rather than closing the whole item). `/agenda` shows
+  `1/3` + the checklist. Registered three new `CallbackQueryHandler`s.
+- **Consumers**: `remind/nudge.plan_nudges` compares on the date prefix, **honors `remind`** (opt-out skips;
+  default-on still nudges), and **chases the first open step** (shows the due time); `brief/compose` shows
+  `[n/total done]` and date-prefix windowing.
+- **Tests**: extended `test_ledger_store.py` (steps round-trip, flat-unchanged, auto-complete, open_steps,
+  remind default/opt-out, due-with-time, hand-edited checklist), rewrote `test_ledger_tools.py` (action-tool
+  shapes + mark_done guard), extended `test_remind.py` (timed due-today, chase open step, remind-off skipped),
+  `test_brief_compose.py` (progress + timed due), new `test_ledger_propose.py` (revise + fallbacks).
+- **Bug fix (found in first real use, pre-deploy):** `LedgerStore.add()` deduped on the raw `source`, but
+  every chat-tracked task uses the generic `source="chat"` → once one chat item existed, every later chat
+  track collapsed onto it and `add` returned an unrelated old task (user saw the NDA reminder come back as
+  "pay and send bukti potong pajak to vOffice"). Fixed: dedup now applies ONLY to structured provenance keys
+  (those containing `:`, e.g. `email:work:ab12`), never to `chat`/empty. No data corruption (add returned the
+  existing item without writing). Regression test added. This bug was live on the pre-slice-α VPS too.
+- **NOT yet live-verified through the bot** — deploy (`git push origin main` → self-hosted runner) then walk:
+  multi-part email → proposal card → adjust → Track these → 🔔/🔕 opt; `/agenda` shows `1/3`; mail implies a
+  step done → tick card → last step auto-completes; `/done` on an open-steps item confirms; a 09:00 reminder
+  chases the open step with its due time. (Laptop poller stays off — VPS is live.)

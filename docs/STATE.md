@@ -5,7 +5,7 @@
 > folder, then give a 4–6 line recap and ask what to work on. Keep this file current
 > at the end of each working session.
 
-_Last updated: 2026-06-30 (session 10 — slice 1 (/onboard) + clock + reminders + definition-of-done standard; recorded the structured multi-step-tasks design (D21) as the next build, "slice α")._
+_Last updated: 2026-06-30 (session 11 — built **slice α**: structured multi-step tasks / checklists on commitments. 182 tests pass, ruff clean. NOT yet live-verified through the bot — next: deploy + walk the proposal/tick-off/reminder flows.)_
 
 ## One-line status
 Aurora is a Telegram-based conversational AI assistant that reads, searches, replies to, and
@@ -66,14 +66,16 @@ Telegram; she uses tools (currently email) to act, and reports in her own words.
   `git push origin main` (self-hosted runner). See **D18**. Gmail OAuth published to Production (token
   no longer expires); Telegram token no longer logged. Both session-9 follow-ups closed.
 
-## Next up — **Slice α: structured multi-step tasks (do this first)**
-Before continuing Phase 2, build **slice α** — full design locked in **D21**. Give a commitment an optional
-checklist where each step = one "definition of done" item (0 steps = today's flat task; backward-compatible,
-hand-editable). Aurora **proposes** content-derived steps at capture (user owns granularity via
-`Track these / Yes, but adjust / Not now`); tick-off is **suggest-and-confirm**, never silent; `mark_done`
-guards on open steps + last step auto-completes; per-task `remind` opt-in + due-with-**time**; reminders chase
-the open step. This makes the definition-of-done (D20) bite at *ingestion + structure*, not just the prompt.
-It sits before Phase 2 slice 2 (playbooks later fill these step templates). See BACKLOG item 0.
+## Next up — **Slice α: structured multi-step tasks — BUILT (session 11), needs live verification**
+Design locked in **D21**; implemented this session. A commitment now owns an optional checklist (`Step`s as
+hand-editable `  - [ ] …` child lines; 0 steps = today's flat task, fully backward-compatible). Capture goes
+through `propose_commitment` (an **action tool** → a `✅ Track these / ✏️ Yes, but adjust / ✖ Not now` card;
+"adjust" is a conversational loop via `revise_steps`), then a two-button **🔔/🔕 reminder opt** (default on).
+Tick-off is `suggest_step_done` (a suggest-and-confirm card; never silent). `mark_done` guards on open steps;
+the last step auto-completes the parent. `due` may carry a time; `/agenda`, the brief, and reminders show
+`1/3` progress, honor the per-task `remind` flag, and chase the specific open step.
+**Done:** all code + 182 tests (ruff clean). **To do:** deploy (`git push origin main`) and live-walk the
+flows through @paagentaurorabot. Then Phase 2 slice 2 (playbooks fill these step templates). See BACKLOG item 0.
 
 ## Next up — Phase 2: make Aurora *learn* you (in progress, after slice α)
 The roadmap's next milestone (BACKLOG #1; design in **D17**). Goal: complete D3's "correct" half so

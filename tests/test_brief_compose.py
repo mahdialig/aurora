@@ -71,6 +71,20 @@ def test_horizon_widens_for_weekly(tmp_path):
     assert "two weeks out" in weekly
 
 
+def test_progress_and_timed_due_in_prompt(tmp_path):
+    led = _ledger(tmp_path)
+    c = led.add("Reply re: tender", due="2026-07-02T17:00", owner="me",
+                steps=["Send reply", "Prepare File A"])
+    led.set_step(c.id, text="Send reply", done=True)
+    msgs = build_brief_prompt(
+        led.entries(), [], today_iso="2026-06-30", name="", weekly=False, horizon_days=7,
+    )
+    user = msgs[1].content
+    # Timed due classifies into the due-soon window, and progress is shown.
+    assert "DUE SOON" in user and "Reply re: tender" in user
+    assert "[1/2 done]" in user
+
+
 def test_fallback_when_llm_fails(tmp_path):
     led = _ledger(tmp_path)
     led.add("important thing", due="2026-07-01", owner="me")

@@ -16,20 +16,11 @@ from aurora.ledger.store import KINDS, STATUSES, LedgerStore
 
 
 def build_ledger_tools(ledger: LedgerStore) -> list[ToolSpec]:
-    """Inline tools (bound to the ledger) for tracking commitments."""
+    """Inline tools (bound to the ledger) for tracking commitments.
 
-    def add_commitment(args: dict) -> str:
-        text = (args.get("text") or "").strip()
-        if not text:
-            return json.dumps({"error": "text is required"})
-        c = ledger.add(
-            text,
-            kind=(args.get("kind") or "task"),
-            owner=(args.get("owner") or "me"),
-            due=(args.get("due") or "").strip(),
-            source=(args.get("source") or "chat").strip(),
-        )
-        return json.dumps({"tracked": {"id": c.id, "text": c.text, "kind": c.kind, "due": c.due}})
+    ``propose_commitment`` and ``suggest_step_done`` are *action* tools: like
+    ``reply_to_email`` they have no handler and short-circuit the agent loop so the
+    surface can show the user an approval / confirmation card. The rest run inline."""
 
     def list_commitments(args: dict) -> str:
         status = (args.get("status") or "").strip().lower() or None
@@ -56,6 +47,17 @@ def build_ledger_tools(ledger: LedgerStore) -> list[ToolSpec]:
         cid = (args.get("id") or "").strip()
         if not cid:
             return json.dumps({"error": "id is required"})
+        force = bool(args.get("force"))
+        open_steps = ledger.open_steps(cid)
+        if open_steps and not force:
+            # Guard: don't silently close an item whose checklist isn't finished.
+            # Name what's open so Aurora can confirm with the user (D20/D21).
+            return json.dumps({
+                "needs_confirmation": True,
+                "id": cid,
+                "open_steps": [s.text for s in open_steps],
+                "hint": "Steps remain. Tick them off (suggest_step_done), or call mark_done again with force:true once the user confirms the whole thing is truly done.",
+            })
         done = ledger.mark_done(cid)
         if done is None:
             return json.dumps({"error": f"no commitment with id {cid}"})
@@ -63,27 +65,63 @@ def build_ledger_tools(ledger: LedgerStore) -> list[ToolSpec]:
 
     return [
         ToolSpec(
-            name="add_commitment",
-            handler=add_commitment,
+            name="propose_commitment",
+            is_action=True,
             schema={
                 "type": "function",
                 "function": {
-                    "name": "add_commitment",
+                    "name": "propose_commitment",
                     "description": (
-                        "Track an open loop so the user never misses it: something they owe "
-                        "someone, a reply they're awaiting from someone else, a deadline, or "
-                        "meeting prep. Call this whenever the user mentions a task, commitment, "
-                        "or due date — or asks you to remind/track something. Confirm briefly after."
+                        "Propose tracking an open loop so the user never misses it: something they "
+                        "owe someone, a reply they owe, a deadline, or meeting prep. Use this "
+                        "WHENEVER you'd track a commitment in chat — it shows the user a card to "
+                        "confirm (you do NOT track silently). Break the task into its "
+                        "definition-of-done steps: read the actual content (e.g. the email) and "
+                        "derive the candidate sub-tasks it implies (each file/action requested = a "
+                        "step). The user owns the granularity and can adjust or collapse them. If "
+                        "the task is genuinely a single action, pass one step (or none). Do NOT "
+                        "call this for items already tracked."
                     ),
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "text": {"type": "string", "description": "Short description, e.g. 'Reply to Sara about the proposal'."},
+                            "text": {"type": "string", "description": "Short task title, e.g. 'Reply to Finnet re: OpenWay tender'."},
                             "kind": {"type": "string", "enum": list(KINDS), "description": "task = the user must do something; reply = the user owes a reply; deadline = a date-bound obligation; meeting-prep = prepare for a meeting."},
                             "owner": {"type": "string", "enum": ["me", "other"], "description": "'me' = the user is on the hook; 'other' = waiting on someone else."},
-                            "due": {"type": "string", "description": "Due date as ISO YYYY-MM-DD, if any."},
+                            "due": {"type": "string", "description": "Due date as ISO YYYY-MM-DD, or with a time as YYYY-MM-DDTHH:MM, if any."},
+                            "steps": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Candidate definition-of-done steps derived from the content, in order. Each is one concrete sub-task. Omit or use one item for a genuinely atomic task.",
+                            },
                         },
                         "required": ["text"],
+                    },
+                },
+            },
+        ),
+        ToolSpec(
+            name="suggest_step_done",
+            is_action=True,
+            schema={
+                "type": "function",
+                "function": {
+                    "name": "suggest_step_done",
+                    "description": (
+                        "When something (an email, an event) implies one step of a tracked "
+                        "checklist is now done, SUGGEST ticking it off — never tick silently. This "
+                        "shows the user a confirm card. Name the specific step and a one-line note "
+                        "on why you think it's done. Use the commitment id and the exact step text "
+                        "from the LEDGER block. Remaining steps stay open."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "commitment_id": {"type": "string", "description": "The commitment id, e.g. 'c7'."},
+                            "step": {"type": "string", "description": "The exact text of the step you think is done."},
+                            "note": {"type": "string", "description": "One short line on why it looks done, e.g. 'vOffice confirmed they received the bukti potong'."},
+                        },
+                        "required": ["commitment_id", "step"],
                     },
                 },
             },
@@ -144,11 +182,18 @@ def build_ledger_tools(ledger: LedgerStore) -> list[ToolSpec]:
                 "type": "function",
                 "function": {
                     "name": "mark_done",
-                    "description": "Mark a tracked commitment complete by id when the user says it's handled.",
+                    "description": (
+                        "Mark a tracked commitment complete by id when the user says it's handled. "
+                        "If it has a checklist with open steps, this returns needs_confirmation with "
+                        "the open steps instead of closing — surface those to the user and only pass "
+                        "force:true once they confirm the whole obligation is truly done (not just a "
+                        "step acknowledged)."
+                    ),
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "id": {"type": "string", "description": "The commitment id, e.g. 'c3'."},
+                            "force": {"type": "boolean", "description": "Complete even if checklist steps remain open. Only after the user confirms."},
                         },
                         "required": ["id"],
                     },

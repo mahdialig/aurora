@@ -1,4 +1,4 @@
-from aurora.ledger.store import Commitment
+from aurora.ledger.store import Commitment, Step
 from aurora.remind.nudge import plan_nudges
 from aurora.remind.state import RemindState
 
@@ -58,6 +58,32 @@ def test_undated_no_dates_skipped():
     # Hand-added line with no created/updated → can't judge staleness → no nudge.
     items = [_c("c1", "mystery task", owner="me")]
     assert plan_nudges(items, TODAY, stale_days=3) == []
+
+
+def test_due_today_with_time():
+    # A timed due on today's date must still classify as due_today (compares on the date).
+    items = [_c("c1", "Submit form", due="2026-06-30T17:00")]
+    nudges = plan_nudges(items, TODAY)
+    assert nudges[0].kind == "due_today"
+    assert "by 17:00" in nudges[0].text
+
+
+def test_nudge_chases_open_step():
+    item = _c(
+        "c1", "Reply re: tender", due="2026-06-30",
+        steps=(Step("Send the reply", done=True), Step("Prepare File A", done=False)),
+    )
+    nudges = plan_nudges([item], TODAY)
+    # Chases the first OPEN step, not the whole item or the done half.
+    assert "Prepare File A" in nudges[0].text
+    assert "Send the reply" not in nudges[0].text
+
+
+def test_remind_off_is_skipped_default_on_still_nudges():
+    off = _c("c1", "muted", due="2026-06-25", remind=False)
+    on = _c("c2", "watched", due="2026-06-25")  # default remind=True
+    ids = {n.commitment_id for n in plan_nudges([off, on], TODAY)}
+    assert ids == {"c2"}
 
 
 def test_remind_state_round_trip(tmp_path):

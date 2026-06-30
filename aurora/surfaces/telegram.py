@@ -29,6 +29,7 @@ from aurora.agent import run_agent
 from aurora.brief.compose import build_brief
 from aurora.config import Config, ConfigError
 from aurora.ledger import LedgerStore
+from aurora.ledger.propose import revise_steps
 from aurora.llm import DeepSeekClient, LLMClient, Message
 from aurora.memory import MemoryStore
 from aurora.notify.job import start_notifier, stop_notifier
@@ -235,7 +236,14 @@ async def agenda_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         due = f" — due {c.due}" if c.due else ""
         tag = " (waiting on them)" if c.owner == "other" else ""
         flag = f" [{c.status}]" if c.status in ("waiting", "blocked") else ""
-        lines.append(f"• {c.id}: {c.text}{due}{tag}{flag}")
+        prog = ""
+        if c.progress is not None:
+            done_n, total = c.progress
+            prog = f" ({done_n}/{total})"
+        lines.append(f"• {c.id}: {c.text}{due}{prog}{tag}{flag}")
+        for s in c.steps:
+            box = "☑" if s.done else "☐"
+            lines.append(f"    {box} {s.text}")
     await update.effective_message.reply_text("Here's what's open:\n" + "\n".join(lines))
 
 
@@ -253,11 +261,23 @@ async def track_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 @_allowed_only
 async def done_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/done <id> — mark a tracked commitment complete."""
+    """/done <id> [force] — mark a tracked commitment complete (guards on open steps)."""
     ledger: LedgerStore = context.application.bot_data["ledger"]
-    cid = " ".join(context.args).strip() if context.args else ""
+    args = context.args or []
+    force = bool(args) and args[-1].lower() == "force"
+    if force:
+        args = args[:-1]
+    cid = " ".join(args).strip()
     if not cid:
         await update.effective_message.reply_text("Which one? Give me its id, e.g. /done c3 (see /agenda).")
+        return
+    open_steps = ledger.open_steps(cid)
+    if open_steps and not force:
+        listed = "\n".join(f"☐ {s.text}" for s in open_steps)
+        await update.effective_message.reply_text(
+            f"That one still has open steps:\n{listed}\n\nTick them off, or send "
+            f"`/done {cid} force` to close it anyway."
+        )
         return
     done = ledger.mark_done(cid)
     if done is None:
@@ -648,6 +668,24 @@ async def _respond(update: Update, context: ContextTypes.DEFAULT_TYPE, user_text
     await update.effective_message.reply_text(visible, reply_markup=reply_markup)
 
 
+async def _proposing_handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
+    """A typed message during a proposal 'adjust' — revise the steps and re-propose."""
+    state = context.chat_data.pop("proposing", None)
+    chat_id = update.effective_chat.id
+    if not state:
+        return
+    payload = state["payload"]
+    text = (text or "").strip()
+    if not text:
+        await _present_proposal(context, chat_id, payload)
+        return
+    llm: LLMClient = context.application.bot_data["llm"]
+    await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+    # revise_steps does one LLM call (with unchanged-payload fallback) — keep it off the loop.
+    revised = await asyncio.to_thread(revise_steps, llm, payload, text)
+    await _present_proposal(context, chat_id, revised)
+
+
 @_allowed_only
 async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Free-form chat — Aurora may use tools (e.g. email) as needed."""
@@ -655,6 +693,10 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # before it falls through to the agent loop.
     if context.chat_data.get("onboarding", {}).get("active"):
         await _onboard_handle_text(update, context, update.effective_message.text or "")
+        return
+    # Likewise an in-progress proposal 'adjust' loop claims the next typed message.
+    if context.chat_data.get("proposing", {}).get("active"):
+        await _proposing_handle_text(update, context, update.effective_message.text or "")
         return
     await _respond(update, context, update.effective_message.text or "")
 
@@ -697,10 +739,118 @@ async def _present_reply(update, context, account_name: str, reply: Reply, histo
     )
 
 
+# --------------------------------------------------------------------------- #
+# Structured tasks: capture proposal + reminder opt-in + step tick-off
+# --------------------------------------------------------------------------- #
+
+
+def _proposal_text(payload: dict) -> str:
+    steps = payload.get("steps") or []
+    due = payload.get("due") or ""
+    head = f"📋 Track: {payload['text']}"
+    if due:
+        head += f"\nDue: {due}"
+    if steps:
+        body = "\n\nHere are the suggested task items:\n" + "\n".join(f"☐ {s}" for s in steps)
+    else:
+        body = "\n\n(I'll track this as a single item.)"
+    return head + body
+
+
+async def _present_proposal(context: ContextTypes.DEFAULT_TYPE, chat_id: int, payload: dict) -> None:
+    """Show the capture proposal card (Track / Adjust / Not now)."""
+    token = _stash(context, "pending_proposals", payload)
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("✅ Track these", callback_data=f"prop:track:{token}"),
+                InlineKeyboardButton("✏️ Yes, but adjust", callback_data=f"prop:adjust:{token}"),
+                InlineKeyboardButton("✖ Not now", callback_data=f"prop:cancel:{token}"),
+            ]
+        ]
+    )
+    await context.bot.send_message(chat_id=chat_id, text=_proposal_text(payload), reply_markup=keyboard)
+
+
+async def _ask_reminder_optin(context: ContextTypes.DEFAULT_TYPE, chat_id: int, cid: str) -> None:
+    """After tracking, ask whether to send proactive reminders for this item (default on)."""
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("🔔 Yes, remind me", callback_data=f"prem:on:{cid}"),
+                InlineKeyboardButton("🔕 No need", callback_data=f"prem:off:{cid}"),
+            ]
+        ]
+    )
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text="Want me to nudge you about this as it comes due?",
+        reply_markup=keyboard,
+    )
+
+
+async def _present_tick(context: ContextTypes.DEFAULT_TYPE, chat_id: int, payload: dict) -> None:
+    """Show the tick-off suggestion card (Tick it off / Not yet)."""
+    ledger: LedgerStore = context.application.bot_data["ledger"]
+    token = _stash(context, "pending_ticks", payload)
+    step = payload["step"]
+    note = (payload.get("note") or "").strip()
+    c = ledger.get(payload["cid"])
+    remaining = [s for s in (c.open_step_texts() if c else []) if s != step]
+    lead = f"{note} — " if note else ""
+    text = f"{lead}tick off “{step}”?"
+    if remaining:
+        text += "\nStill open after this: " + ", ".join(remaining)
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("✅ Tick it off", callback_data=f"tick:on:{token}"),
+                InlineKeyboardButton("Not yet", callback_data=f"tick:off:{token}"),
+            ]
+        ]
+    )
+    await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=keyboard)
+
+
 async def _propose_action(update, context, result, history: list[Message]) -> None:
-    """Turn an agent action (reply_to_email / resend_last_draft) into an approval prompt."""
+    """Turn an agent action (reply_to_email / resend_last_draft / propose_commitment /
+    suggest_step_done) into an approval or confirmation prompt."""
     accounts: MailAccounts = context.application.bot_data["mail_accounts"]
     args = result.action_args or {}
+    chat_id = update.effective_chat.id
+
+    # Capture: Aurora proposes a task + its definition-of-done steps for the user to
+    # confirm (she never tracks silently). The user owns the granularity.
+    if result.action_name == "propose_commitment":
+        text = (args.get("text") or "").strip()
+        if not text:
+            await update.effective_message.reply_text("I couldn't shape that into a task — try again?")
+            return
+        payload = {
+            "text": text,
+            "kind": (args.get("kind") or "task").strip(),
+            "owner": (args.get("owner") or "me").strip(),
+            "due": (args.get("due") or "").strip(),
+            "steps": [str(s).strip() for s in (args.get("steps") or []) if str(s).strip()],
+            "source": "chat",
+        }
+        await _present_proposal(context, chat_id, payload)
+        return
+
+    # Tick-off: Aurora suggests checking a step she believes is done (never silent).
+    if result.action_name == "suggest_step_done":
+        ledger: LedgerStore = context.application.bot_data["ledger"]
+        cid = (args.get("commitment_id") or "").strip()
+        step = (args.get("step") or "").strip()
+        note = (args.get("note") or "").strip()
+        c = ledger.get(cid)
+        if c is None or not step:
+            await update.effective_message.reply_text(
+                "I couldn't match that to a tracked step — check /agenda?"
+            )
+            return
+        await _present_tick(context, chat_id, {"cid": cid, "step": step, "note": note})
+        return
 
     if result.action_name == "resend_last_draft":
         last = context.chat_data.get("last_reply")
@@ -856,17 +1006,130 @@ async def on_track_button(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 @_allowed_only
 async def on_reminder_done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Tap '✅ Done' under a proactive reminder / check-in — mark the commitment done."""
+    """Tap '✅ Done' under a proactive reminder / check-in.
+
+    For a checklist item this ticks the chased (first open) step rather than silently
+    closing the whole thing; if that was the last step the parent auto-completes."""
     query = update.callback_query
     await query.answer()
     _action, _, cid = (query.data or "").partition(":")
     ledger: LedgerStore = context.application.bot_data["ledger"]
     base = query.message.text or ""
+
+    open_steps = ledger.open_steps(cid)
+    if open_steps:
+        updated = ledger.set_step(cid, text=open_steps[0].text, done=True)
+        if updated is None:
+            await query.edit_message_text(base + "\n\n(couldn't update that one — check /agenda)")
+        elif updated.is_done:
+            await query.edit_message_text(base + f"\n\n✅ “{open_steps[0].text}” — that was the last step, all done.")
+        else:
+            d, t = updated.progress
+            await query.edit_message_text(base + f"\n\n✅ Ticked “{open_steps[0].text}” ({d}/{t}).")
+        return
+
     done = ledger.mark_done(cid)
     if done is None:
         await query.edit_message_text(base + "\n\n(couldn't find that one — maybe already cleared)")
     else:
         await query.edit_message_text(base + "\n\n✅ Marked done.")
+
+
+@_allowed_only
+async def on_proposal_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Taps on the capture proposal card: Track these / Yes, but adjust / Not now."""
+    query = update.callback_query
+    await query.answer()
+    _, _, rest = (query.data or "").partition(":")
+    action, _, token = rest.partition(":")
+    pending: dict[str, dict] = context.application.bot_data.setdefault("pending_proposals", {})
+    payload = pending.pop(token, None)
+    base = query.message.text or ""
+    chat_id = update.effective_chat.id
+
+    if payload is None:
+        await query.edit_message_text(base + "\n\n(that suggestion has expired — just ask me again)")
+        return
+
+    if action == "cancel":
+        await query.edit_message_text(base + "\n\n— okay, not tracking that.")
+        return
+
+    if action == "adjust":
+        # Hand off to a one-shot conversational edit loop (mirrors onboarding).
+        context.chat_data["proposing"] = {"active": True, "payload": payload}
+        await query.edit_message_text(base + "\n\n✏️ Sure — what should I change?")
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=(
+                "Tell me what to change — drop/add/rename a step, change the due, or say "
+                "“just track it as one item”."
+            ),
+        )
+        return
+
+    # action == "track"
+    ledger: LedgerStore = context.application.bot_data["ledger"]
+    c = ledger.add(
+        payload["text"],
+        kind=payload.get("kind", "task"),
+        owner=payload.get("owner", "me"),
+        due=payload.get("due", ""),
+        source=payload.get("source", "chat"),
+        steps=payload.get("steps") or None,
+    )
+    await query.edit_message_text(base + f"\n\n➕ Tracking ({c.id}): {c.text}")
+    await _ask_reminder_optin(context, chat_id, c.id)
+
+
+@_allowed_only
+async def on_remind_pref(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Tap on the reminder opt-in (🔔 Yes / 🔕 No need) after tracking."""
+    query = update.callback_query
+    await query.answer()
+    _, _, rest = (query.data or "").partition(":")
+    action, _, cid = rest.partition(":")
+    ledger: LedgerStore = context.application.bot_data["ledger"]
+    base = query.message.text or ""
+
+    if action == "off":
+        updated = ledger.update(cid, remind=False)
+        if updated is None:
+            await query.edit_message_text(base + "\n\n(couldn't find that one — check /agenda)")
+        else:
+            await query.edit_message_text(base + "\n\n🔕 Got it — I won't nudge you about this one.")
+    else:  # on (the default — just confirm)
+        await query.edit_message_text(base + "\n\n🔔 I'll keep an eye on it and remind you.")
+
+
+@_allowed_only
+async def on_tick_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Tap on the tick-off suggestion card: ✅ Tick it off / Not yet."""
+    query = update.callback_query
+    await query.answer()
+    _, _, rest = (query.data or "").partition(":")
+    action, _, token = rest.partition(":")
+    pending: dict[str, dict] = context.application.bot_data.setdefault("pending_ticks", {})
+    payload = pending.pop(token, None)
+    base = query.message.text or ""
+
+    if payload is None:
+        await query.edit_message_text(base + "\n\n(that suggestion has expired)")
+        return
+
+    if action == "off":
+        await query.edit_message_text(base + "\n\n— okay, leaving it open.")
+        return
+
+    ledger: LedgerStore = context.application.bot_data["ledger"]
+    updated = ledger.set_step(payload["cid"], text=payload["step"], done=True)
+    if updated is None:
+        await query.edit_message_text(base + "\n\n(couldn't find that step — check /agenda)")
+    elif updated.is_done:
+        await query.edit_message_text(base + "\n\n✅ Ticked — that was the last step, so the whole thing's done.")
+    else:
+        d, t = updated.progress
+        await query.edit_message_text(base + f"\n\n✅ Ticked off. Progress: {d}/{t}.")
 
 
 # --------------------------------------------------------------------------- #
@@ -956,6 +1219,9 @@ def build_application(config: Config, llm: LLMClient, memory: MemoryStore | None
     app.add_handler(CallbackQueryHandler(on_memory_button, pattern=r"^(remember|dismiss):"))
     app.add_handler(CallbackQueryHandler(on_track_button, pattern=r"^(track|untrack):"))
     app.add_handler(CallbackQueryHandler(on_reminder_done, pattern=r"^rdone:"))
+    app.add_handler(CallbackQueryHandler(on_proposal_button, pattern=r"^prop:"))
+    app.add_handler(CallbackQueryHandler(on_remind_pref, pattern=r"^prem:"))
+    app.add_handler(CallbackQueryHandler(on_tick_button, pattern=r"^tick:"))
     app.add_handler(CallbackQueryHandler(on_reply_action, pattern=r"^(send|savedraft|cancelreply):"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
     return app

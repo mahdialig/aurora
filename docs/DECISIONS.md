@@ -171,9 +171,9 @@ she doesn't close the loop on the user's behalf. This is the *general* judgment 
 knowledge ("for withholding tax, bukti-potong is step 1, DJP payment is the real done") belongs in the
 **procedural playbooks** layer (Phase 2 slice 2) — this is its motivating example.
 
-### D21 — (designed, not built) Structured multi-step tasks: a "definition of done" at ingestion
-**Status: agreed design, deferred to a future session as build "slice α" — to be done BEFORE Phase 2
-slice 2 (playbooks).** D20 made Aurora *interpret* completion carefully in chat, but tasks are still flat
+### D21 — Structured multi-step tasks: a "definition of done" at ingestion
+**Status: BUILT (session 11).** The design below is realized; build notes at the end. It lands before Phase 2
+slice 2 (playbooks fill these step templates). D20 made Aurora *interpret* completion carefully in chat, but tasks are still flat
 one-liners, so "done" is a single flag and there's nowhere to record partial progress. This makes the DoD
 bite at **ingestion + structure**, while staying a hand-editable flat markdown notebook (D14) — not Jira.
 
@@ -229,3 +229,17 @@ chase open step. Fast-follow: due-time-of-day nudges; the auto-tick toggle. **Re
 2 (playbooks):** steps are the *container*; playbooks are the *knowledge that fills them* with known step
 templates for recurring workflows (e.g. withholding tax). Slice α comes first; D20's prompt clause is the
 interim guardrail until it lands.
+
+**Build note (session 11).** Three choices the user made at build time: `remind` **defaults ON** (so existing
+and hand-added items keep getting nudges — no regression; `remind:off` is written only on opt-out and is the
+only state serialized), and the post-track opt message carries **two explicit buttons** (🔔 Yes / 🔕 No);
+tick-off is **tool-driven only** in v1 (a `suggest_step_done` action tool during a chat turn — the
+notify-classifier-driven path and the auto-tick toggle stay deferred); the **proposal card is always shown**
+for conversational capture (collapse-to-one lives inside "Adjust"; `/track` and the notification "Track this"
+button stay direct). Implementation: capture/tick-off are **action tools** (`is_action`, no handler) that
+short-circuit `run_agent` into `_propose_action` → a stash+callback card (prefixes `prop:` / `prem:` / `tick:`),
+exactly like `reply_to_email`; the "Adjust" loop mirrors the `/onboard` state machine (`chat_data["proposing"]`
++ a `chat()` interception) and revises via `aurora/ledger/propose.revise_steps`. Steps carry **no ids**
+(addressed by index/text) so the file stays clean and hand-editable. A latent bug surfaced and was fixed:
+a timed `due` broke `==`/`due_on_or_before` string comparisons → all date comparisons now use the date prefix
+(`_due_date`). 182 tests, ruff clean. Not yet live-verified through the bot at time of writing.

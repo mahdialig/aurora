@@ -40,6 +40,10 @@ _SEP = " · "
 # One key:val token in the metadata block. Values run to the next space (ids,
 # dates, and source keys never contain spaces).
 _KV_RE = re.compile(r"(?P<key>[a-z_]+):(?P<val>\S+)")
+# A GitHub-style task-list child line: "  - [ ] step" / "  - [x] step". Matched
+# against the *stripped* line, so a parent line ("- text · meta") never matches
+# (its char after "- " is text, not "["). Steps belong to the most recent parent.
+_STEP_RE = re.compile(r"-\s*\[(?P<mark>[ xX])\]\s+(?P<text>.+)")
 
 
 def _coerce(value: str, allowed: tuple[str, ...], default: str) -> str:
@@ -47,26 +51,76 @@ def _coerce(value: str, allowed: tuple[str, ...], default: str) -> str:
     return value if value in allowed else default
 
 
+def _due_date(due: str) -> str:
+    """The date portion of a ``due`` that may carry a time (``2026-07-03T17:00``).
+
+    Equality and ``due_on_or_before`` comparisons must run on the date, not the
+    raw string — otherwise a timed due never equals a bare date and sorts after
+    one for the same day. Plain ``<`` ordering already works (fixed-width ISO)."""
+    return due[:10]
+
+
+@dataclass(frozen=True)
+class Step:
+    """One definition-of-done item under a commitment's checklist."""
+
+    text: str
+    done: bool = False
+
+
+def _as_steps(steps: list[str] | list[Step] | None) -> tuple[Step, ...]:
+    """Coerce a list of step texts (or ``Step``s) into a steps tuple, dropping blanks."""
+    if not steps:
+        return ()
+    out: list[Step] = []
+    for s in steps:
+        if isinstance(s, Step):
+            if s.text.strip():
+                out.append(s)
+        elif str(s).strip():
+            out.append(Step(text=str(s).strip()))
+    return tuple(out)
+
+
 @dataclass(frozen=True)
 class Commitment:
-    """One open loop Aurora is tracking for the user."""
+    """One open loop Aurora is tracking for the user.
+
+    A commitment may own a *checklist* (``steps``): each step is one
+    definition-of-done item. Zero steps = a flat task = today's exact behavior."""
 
     id: str
     text: str
     kind: str = "task"          # task | reply | deadline | meeting-prep
     owner: str = "me"           # me | other
     status: str = "open"        # open | waiting | blocked | done
-    due: str = ""               # ISO date, or "" if none
+    due: str = ""               # ISO date or date+time (2026-07-03T17:00), or "" if none
     source: str = ""            # provenance, e.g. "email:personal:<id>" or "chat"
     created: str = ""           # ISO date added
     updated: str = ""           # ISO date last changed
+    remind: bool = True         # per-task proactive-reminder opt-in (default on)
+    steps: tuple[Step, ...] = ()  # checklist; empty = flat task
 
     @property
     def is_done(self) -> bool:
+        if self.steps:
+            return all(s.done for s in self.steps)
         return self.status == "done"
+
+    @property
+    def progress(self) -> tuple[int, int] | None:
+        """(done, total) for a checklist, or None when flat."""
+        if not self.steps:
+            return None
+        return (sum(1 for s in self.steps if s.done), len(self.steps))
+
+    def open_step_texts(self) -> list[str]:
+        return [s.text for s in self.steps if not s.done]
 
     def to_line(self) -> str:
         meta = [f"kind:{self.kind}", f"owner:{self.owner}", f"status:{self.status}"]
+        if not self.remind:
+            meta.append("remind:off")
         if self.due:
             meta.append(f"due:{self.due}")
         meta.append(f"id:{self.id}")
@@ -77,6 +131,10 @@ class Commitment:
         if self.updated:
             meta.append(f"updated:{self.updated}")
         return f"- {self.text}{_SEP}{' '.join(meta)}"
+
+    def step_lines(self) -> list[str]:
+        """GitHub-style task-list child lines (empty for a flat task)."""
+        return [f"  - [{'x' if s.done else ' '}] {s.text}" for s in self.steps]
 
 
 class LedgerStore:
@@ -94,6 +152,13 @@ class LedgerStore:
         out: list[Commitment] = []
         for raw in self.path.read_text(encoding="utf-8").splitlines():
             line = raw.strip()
+            # A checklist child line attaches to the most recent parent. Checked
+            # before the parent path because a stripped step also starts with "- ".
+            step_m = _STEP_RE.fullmatch(line)
+            if step_m and out:
+                step = Step(text=step_m.group("text").strip(), done=step_m.group("mark") in "xX")
+                out[-1] = replace(out[-1], steps=out[-1].steps + (step,))
+                continue
             if not line.startswith("- "):
                 continue
             body = line[2:].strip()
@@ -115,6 +180,7 @@ class LedgerStore:
                     source=fields.get("src", ""),
                     created=fields.get("created", ""),
                     updated=fields.get("updated", ""),
+                    remind=fields.get("remind", "on").lower() != "off",
                 )
             )
         # Backfill ids for hand-added lines so update/done can target them.
@@ -168,7 +234,7 @@ class LedgerStore:
                 continue
             if kind is not None and c.kind != kind:
                 continue
-            if due_on_or_before is not None and (not c.due or c.due > due_on_or_before):
+            if due_on_or_before is not None and (not c.due or _due_date(c.due) > due_on_or_before):
                 continue
             out.append(c)
         return out
@@ -189,16 +255,23 @@ class LedgerStore:
         due: str = "",
         source: str = "",
         status: str = "open",
+        steps: list[str] | list[Step] | None = None,
+        remind: bool = True,
     ) -> Commitment:
-        """Add a commitment. If ``source`` matches an existing one, returns that
-        (no duplicate) — so the conversational and email-auto-capture paths can't
-        double-store the same item."""
+        """Add a commitment. If ``source`` is a *specific provenance key* matching an
+        existing one, returns that (no duplicate) — so the chat and email-auto-capture
+        paths can't double-store the same email. ``steps`` may be step texts or ``Step``s.
+
+        Dedup applies ONLY to structured provenance keys (those containing ``:``, e.g.
+        ``email:work:ab12``), never to a generic source like ``chat`` — otherwise every
+        chat-tracked item would collapse onto the first one and ``add`` would return an
+        unrelated old task."""
         text = text.strip()
         if not text:
             raise ValueError("Cannot track an empty commitment.")
         with self._lock:
             items = self.entries()
-            if source:
+            if source and ":" in source:
                 for c in items:
                     if c.source == source:
                         return c
@@ -213,13 +286,15 @@ class LedgerStore:
                 source=source.strip(),
                 created=today,
                 updated=today,
+                remind=bool(remind),
+                steps=_as_steps(steps),
             )
             self._write(items + [new])
             return new
 
     def update(self, commitment_id: str, **changes) -> Commitment | None:
         """Update fields of a commitment by id. Returns the new value, or None."""
-        allowed = {"text", "kind", "owner", "status", "due"}
+        allowed = {"text", "kind", "owner", "status", "due", "remind"}
         clean = {k: v for k, v in changes.items() if k in allowed and v is not None}
         with self._lock:
             items = self.entries()
@@ -239,8 +314,71 @@ class LedgerStore:
         return None
 
     def mark_done(self, commitment_id: str) -> Commitment | None:
-        """Mark a commitment done (kept in-file for the weekly review)."""
-        return self.update(commitment_id, status="done")
+        """Mark a commitment done (kept in-file for the weekly review). Also ticks
+        every step so the file reflects completion. The *guard* (confirm when steps
+        are still open) lives at the call sites — they check ``open_steps`` first."""
+        with self._lock:
+            items = self.entries()
+            for i, c in enumerate(items):
+                if c.id != commitment_id:
+                    continue
+                done_steps = tuple(replace(s, done=True) for s in c.steps)
+                items[i] = replace(c, status="done", steps=done_steps,
+                                   updated=date.today().isoformat())
+                self._write(items)
+                return items[i]
+        return None
+
+    def open_steps(self, commitment_id: str) -> list[Step]:
+        """Not-done steps of a commitment (empty for a flat or fully-done item)."""
+        c = self.get(commitment_id)
+        return [s for s in c.steps if not s.done] if c else []
+
+    def set_step(
+        self,
+        commitment_id: str,
+        *,
+        index: int | None = None,
+        text: str | None = None,
+        done: bool = True,
+    ) -> Commitment | None:
+        """Tick (or untick) one step, addressed by index or by matching text.
+
+        When this leaves every step done, the parent auto-completes (status=done)."""
+        with self._lock:
+            items = self.entries()
+            for i, c in enumerate(items):
+                if c.id != commitment_id or not c.steps:
+                    continue
+                target = self._step_index(c, index, text)
+                if target is None:
+                    return None
+                steps = list(c.steps)
+                steps[target] = replace(steps[target], done=done)
+                steps_t = tuple(steps)
+                status = "done" if all(s.done for s in steps_t) else (
+                    "open" if c.status == "done" else c.status
+                )
+                items[i] = replace(c, steps=steps_t, status=status,
+                                   updated=date.today().isoformat())
+                self._write(items)
+                return items[i]
+        return None
+
+    @staticmethod
+    def _step_index(c: Commitment, index: int | None, text: str | None) -> int | None:
+        if index is not None and 0 <= index < len(c.steps):
+            return index
+        if text:
+            want = text.strip().lower()
+            # Exact match first, then a forgiving substring match.
+            for i, s in enumerate(c.steps):
+                if s.text.strip().lower() == want:
+                    return i
+            for i, s in enumerate(c.steps):
+                if want in s.text.strip().lower():
+                    return i
+        return None
 
     def remove(self, commitment_id: str) -> Commitment | None:
         with self._lock:
@@ -267,7 +405,9 @@ class LedgerStore:
     def _write(self, items: list[Commitment]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         lines = [_HEADER, ""]
-        lines.extend(c.to_line() for c in items)
+        for c in items:
+            lines.append(c.to_line())
+            lines.extend(c.step_lines())
         data = "\n".join(lines) + "\n"
         # Atomic: write to a temp file in the same dir, then replace. A crash
         # leaves either the old file or the new one — never a half-written ledger.
@@ -283,21 +423,33 @@ class LedgerStore:
         if not items:
             return (
                 "\n\nLEDGER: No open commitments are tracked right now. If the user mentions "
-                "something they owe, await, or must do by a date, offer to track it (add_commitment)."
+                "something they owe, await, or must do by a date, offer to track it "
+                "(propose_commitment — show the suggested steps for the user to confirm)."
             )
         lines = []
         for c in items:
-            bits = [c.text]
             tags = [c.kind]
             if c.owner == "other":
                 tags.append("waiting on them")
             if c.status in ("waiting", "blocked"):
                 tags.append(c.status)
+            if not c.remind:
+                tags.append("reminders off")
             suffix = f" [{', '.join(tags)}]" if tags else ""
             due = f" — due {c.due}" if c.due else ""
-            lines.append(f"- ({c.id}) {''.join(bits)}{due}{suffix}")
+            prog = ""
+            if c.progress is not None:
+                done_n, total = c.progress
+                prog = f" ({done_n}/{total})"
+            lines.append(f"- ({c.id}) {c.text}{due}{prog}{suffix}")
+            # Surface open steps so Aurora can chase / tick the right one.
+            for s in c.steps:
+                if not s.done:
+                    lines.append(f"    ☐ {s.text}")
         return (
-            "\n\nLEDGER — open commitments you're tracking for the user (use update_commitment / "
-            "mark_done by id as things progress; reference these when relevant):\n"
+            "\n\nLEDGER — open commitments you're tracking for the user. Use update_commitment / "
+            "mark_done by id as things progress; reference these when relevant. For checklist "
+            "items, tick a step ONLY with suggest_step_done (suggest-and-confirm, never silent), "
+            "and mark_done asks before closing while steps remain:\n"
             + "\n".join(lines)
         )

@@ -1,6 +1,6 @@
 from datetime import date
 
-from aurora.ledger.store import Commitment, LedgerStore
+from aurora.ledger.store import Commitment, LedgerStore, Step
 
 
 def test_add_and_query(tmp_path):
@@ -24,6 +24,19 @@ def test_dedup_by_source(tmp_path):
     again = led.add("Reply to Sara (dup)", source="email:personal:abc")
     assert again.id == first.id
     assert len(led.entries()) == 1
+
+
+def test_generic_chat_source_does_not_dedup(tmp_path):
+    """Regression: a generic source like 'chat' must NOT collapse onto the first
+    chat item — only structured provenance keys (email:...) dedup."""
+    led = LedgerStore(tmp_path)
+    a = led.add("pay and send bukti potong to vOffice", source="chat")
+    b = led.add("Remind Pak Indra about the NDA expiry", source="chat")
+    assert a.id != b.id
+    assert len(led.entries()) == 2
+    # An empty source also never dedups.
+    c = led.add("third unrelated thing", source="")
+    assert len({a.id, b.id, c.id}) == 3
 
 
 def test_ids_increment(tmp_path):
@@ -127,3 +140,105 @@ def test_to_line_round_trip():
     line = c.to_line()
     assert line.startswith("- Do the thing · ")
     assert "id:c7" in line and "kind:deadline" in line and "status:waiting" in line
+
+
+# --- slice α: checklists, remind, due-with-time ----------------------------
+
+
+def test_flat_item_unchanged(tmp_path):
+    """0-step item behaves exactly as before: is_done follows the status flag."""
+    led = LedgerStore(tmp_path)
+    c = led.add("call the dentist")
+    assert c.steps == ()
+    assert c.progress is None
+    assert not c.is_done
+    led.mark_done(c.id)
+    assert led.get(c.id).is_done
+
+
+def test_steps_round_trip(tmp_path):
+    led = LedgerStore(tmp_path)
+    c = led.add("Reply re: tender", kind="reply", steps=["Send the reply", "Prepare File A", "Prepare File B"])
+    assert [s.text for s in c.steps] == ["Send the reply", "Prepare File A", "Prepare File B"]
+    assert all(not s.done for s in c.steps)
+    assert c.progress == (0, 3)
+    # Round-trips through the markdown file (parent line + child task-list lines).
+    reloaded = LedgerStore(tmp_path).get(c.id)
+    assert [s.text for s in reloaded.steps] == ["Send the reply", "Prepare File A", "Prepare File B"]
+    # The child lines are GitHub-style and hand-editable.
+    text = (tmp_path / "ledger" / "commitments.md").read_text(encoding="utf-8")
+    assert "  - [ ] Send the reply" in text
+
+
+def test_is_done_from_steps_and_auto_complete(tmp_path):
+    led = LedgerStore(tmp_path)
+    c = led.add("Two-parter", steps=["A", "B"])
+    assert not c.is_done
+    led.set_step(c.id, text="A", done=True)
+    mid = led.get(c.id)
+    assert mid.progress == (1, 2) and not mid.is_done and mid.status != "done"
+    led.set_step(c.id, index=1, done=True)
+    last = led.get(c.id)
+    assert last.is_done and last.status == "done"  # last step auto-completes the parent
+
+
+def test_open_steps(tmp_path):
+    led = LedgerStore(tmp_path)
+    c = led.add("Task", steps=["A", "B"])
+    led.set_step(c.id, text="A", done=True)
+    assert [s.text for s in led.open_steps(c.id)] == ["B"]
+    assert led.open_steps("c999") == []
+    flat = led.add("flat")
+    assert led.open_steps(flat.id) == []  # no checklist → nothing to guard
+
+
+def test_mark_done_ticks_all_steps(tmp_path):
+    led = LedgerStore(tmp_path)
+    c = led.add("Task", steps=["A", "B"])
+    led.mark_done(c.id)
+    done = led.get(c.id)
+    assert done.is_done and all(s.done for s in done.steps)
+
+
+def test_remind_default_on_and_optout_serialization(tmp_path):
+    led = LedgerStore(tmp_path)
+    c = led.add("watched")
+    assert c.remind is True  # default on (no regression for existing items)
+    text = (tmp_path / "ledger" / "commitments.md").read_text(encoding="utf-8")
+    assert "remind:off" not in text  # default-on is omitted from the line
+    led.update(c.id, remind=False)
+    assert led.get(c.id).remind is False
+    assert "remind:off" in (tmp_path / "ledger" / "commitments.md").read_text(encoding="utf-8")
+    # And it round-trips back to False.
+    assert LedgerStore(tmp_path).get(c.id).remind is False
+
+
+def test_due_with_time_round_trip_and_query(tmp_path):
+    led = LedgerStore(tmp_path)
+    c = led.add("timed", due="2026-07-03T17:00")
+    assert led.get(c.id).due == "2026-07-03T17:00"
+    # due_on_or_before compares on the date portion, so a timed due on the boundary day matches.
+    hits = led.query(due_on_or_before="2026-07-03")
+    assert [x.id for x in hits] == [c.id]
+
+
+def test_hand_edited_checklist_loads(tmp_path):
+    path = tmp_path / "ledger" / "commitments.md"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "# Aurora's commitments ledger\n\n"
+        "- Reply re: tender · kind:reply owner:me status:open id:c1\n"
+        "  - [x] Send the reply\n"
+        "  - [ ] Prepare File A\n",
+        encoding="utf-8",
+    )
+    c = LedgerStore(path.parent.parent).get("c1")
+    assert c.progress == (1, 2)
+    assert [s.done for s in c.steps] == [True, False]
+
+
+def test_step_helper_drops_blanks_and_accepts_step_objects():
+    from aurora.ledger.store import _as_steps
+    assert _as_steps(["A", "  ", "B"]) == (Step("A"), Step("B"))
+    assert _as_steps([Step("X", done=True)]) == (Step("X", True),)
+    assert _as_steps(None) == ()
