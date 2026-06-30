@@ -8,6 +8,7 @@ mailbox without caring which provider backs it.
 from __future__ import annotations
 
 import base64
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from email.mime.text import MIMEText
@@ -91,6 +92,18 @@ def build_mime(reply: Reply) -> MIMEText:
 def build_raw(reply: Reply) -> str:
     """Base64url-encoded RFC-822 message (Gmail API ``raw`` field)."""
     return base64.urlsafe_b64encode(build_mime(reply).as_bytes()).decode("utf-8")
+
+
+def strip_html(html: str) -> str:
+    """Crudely turn an HTML body into readable plaintext.
+
+    Shared by the Gmail and IMAP connectors as a fallback when a message has no
+    ``text/plain`` part. Not a real renderer — just drops tags and tidies space.
+    """
+    text = re.sub(r"(?is)<(script|style).*?>.*?</\1>", "", html)
+    text = re.sub(r"(?s)<[^>]+>", " ", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    return re.sub(r"\n\s*\n\s*\n+", "\n\n", text).strip()
 
 
 class MailAccount(ABC):

@@ -196,4 +196,32 @@ def build_email_tools(accounts: MailAccounts) -> list[ToolSpec]:
                 },
             },
         ),
+        # Action tool: compose a brand-new email (NOT a reply). Higher stakes — a new
+        # recipient — so it goes through the same Send / Save draft / Cancel approval.
+        ToolSpec(
+            name="compose_email",
+            is_action=True,
+            schema={
+                "type": "function",
+                "function": {
+                    "name": "compose_email",
+                    "description": (
+                        "Compose a brand-NEW email (not a reply) and present it to the user for "
+                        "approval — Send / Save draft / Cancel. Use when the user wants to start a "
+                        "fresh email to someone. Make sure you have the recipient's address (ask if "
+                        "unsure — there are no saved contacts). Write the body in the user's voice."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "account": {"type": "string", "description": "'personal' or 'work' — which mailbox to send from."},
+                            "to": {"type": "string", "description": "Recipient email address."},
+                            "subject": {"type": "string", "description": "The email subject."},
+                            "body": {"type": "string", "description": "The email body text."},
+                        },
+                        "required": ["account", "to", "subject", "body"],
+                    },
+                },
+            },
+        ),
     ]

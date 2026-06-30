@@ -48,6 +48,25 @@ class Config:
     data_dir: Path
     google_credentials_file: Path
     google_token_file: Path
+    # Work mailbox (IMAP/SMTP). All optional — blank WORK_EMAIL/PASSWORD = skip.
+    work_email: str
+    work_password: str
+    work_imap_host: str
+    work_imap_port: int
+    work_smtp_host: str
+    work_smtp_port: int
+    # Proactive notifications (M3).
+    notify_enabled: bool
+    notify_interval_seconds: int
+    # Don't-miss-a-thing engine (M4): timezone + scheduled brief / weekly review.
+    timezone: str
+    brief_enabled: bool
+    brief_time: str
+    brief_horizon_days: int
+    weekly_review_enabled: bool
+    weekly_review_day: int
+    weekly_review_time: str
+    weekly_horizon_days: int
 
     @classmethod
     def load(cls, *, require_telegram: bool = True) -> "Config":
@@ -89,6 +108,30 @@ class Config:
             os.environ.get("GOOGLE_TOKEN_FILE", str(DATA_DIR / "token.json"))
         )
 
+        # Work mailbox (M2). Optional — host/ports default to dapurhosting cPanel.
+        work_email = os.environ.get("WORK_EMAIL", "").strip()
+        work_password = os.environ.get("WORK_PASSWORD", "")
+        work_imap_host = os.environ.get("WORK_IMAP_HOST", "d001.dapurhosting.com").strip()
+        work_imap_port = _int_env("WORK_IMAP_PORT", 993)
+        work_smtp_host = os.environ.get("WORK_SMTP_HOST", "d001.dapurhosting.com").strip()
+        work_smtp_port = _int_env("WORK_SMTP_PORT", 465)
+
+        # Proactive notifications (M3). On by default; checks every 10 min.
+        notify_enabled = _bool_env("AURORA_NOTIFY_ENABLED", True)
+        notify_interval_seconds = _int_env("AURORA_NOTIFY_INTERVAL_SECONDS", 600)
+
+        # Don't-miss-a-thing engine (M4). All optional, sensible defaults (Jakarta).
+        timezone = os.environ.get("AURORA_TIMEZONE", "Asia/Jakarta").strip() or "Asia/Jakarta"
+        brief_enabled = _bool_env("AURORA_BRIEF_ENABLED", True)
+        brief_time = os.environ.get("AURORA_BRIEF_TIME", "07:00").strip() or "07:00"
+        brief_horizon_days = _int_env("AURORA_BRIEF_HORIZON_DAYS", 7)
+        weekly_review_enabled = _bool_env("AURORA_WEEKLY_REVIEW_ENABLED", True)
+        weekly_review_day = _int_env("AURORA_WEEKLY_REVIEW_DAY", 0)  # 0=Monday
+        weekly_review_time = os.environ.get("AURORA_WEEKLY_REVIEW_TIME", "07:30").strip() or "07:30"
+        weekly_horizon_days = _int_env("AURORA_WEEKLY_HORIZON_DAYS", 14)
+        if not 0 <= weekly_review_day <= 6:
+            raise ConfigError("AURORA_WEEKLY_REVIEW_DAY must be 0 (Mon) through 6 (Sun).")
+
         DATA_DIR.mkdir(parents=True, exist_ok=True)
 
         return cls(
@@ -101,6 +144,22 @@ class Config:
             data_dir=DATA_DIR,
             google_credentials_file=google_credentials_file,
             google_token_file=google_token_file,
+            work_email=work_email,
+            work_password=work_password,
+            work_imap_host=work_imap_host,
+            work_imap_port=work_imap_port,
+            work_smtp_host=work_smtp_host,
+            work_smtp_port=work_smtp_port,
+            notify_enabled=notify_enabled,
+            notify_interval_seconds=notify_interval_seconds,
+            timezone=timezone,
+            brief_enabled=brief_enabled,
+            brief_time=brief_time,
+            brief_horizon_days=brief_horizon_days,
+            weekly_review_enabled=weekly_review_enabled,
+            weekly_review_day=weekly_review_day,
+            weekly_review_time=weekly_review_time,
+            weekly_horizon_days=weekly_horizon_days,
         )
 
 
@@ -120,3 +179,22 @@ def _require_int(name: str) -> int:
         return int(raw)
     except ValueError as exc:
         raise ConfigError(f"{name} must be an integer (got {raw!r}).") from exc
+
+
+def _int_env(name: str, default: int) -> int:
+    """Read an optional integer env var, falling back to ``default`` if unset/blank."""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise ConfigError(f"{name} must be an integer (got {raw!r}).") from exc
+
+
+def _bool_env(name: str, default: bool) -> bool:
+    """Read an optional boolean env var ('1'/'true'/'yes'/'on' = True)."""
+    raw = os.environ.get(name, "").strip().lower()
+    if not raw:
+        return default
+    return raw in ("1", "true", "yes", "on")

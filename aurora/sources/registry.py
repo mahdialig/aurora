@@ -10,6 +10,7 @@ import logging
 
 from aurora.sources.base import MailAccount
 from aurora.sources.gmail import GmailAuthError, GmailClient
+from aurora.sources.imap import ImapAccount, ImapError
 
 logger = logging.getLogger("aurora.mail")
 
@@ -46,6 +47,9 @@ def build_mail_accounts(config) -> MailAccounts:
     except GmailAuthError as exc:
         logger.info("Personal Gmail not connected: %s", exc)
 
-    # Work IMAP account is wired in stage 5.
+    try:
+        accounts["work"] = ImapAccount.from_config(config, label="work")
+    except ImapError as exc:
+        logger.info("Work IMAP not connected: %s", exc)
 
     return MailAccounts(accounts)

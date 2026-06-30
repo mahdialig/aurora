@@ -204,6 +204,17 @@ def test_client_create_draft():
     assert svc.rec["draft"]["body"]["message"]["threadId"] == "t1"
 
 
+def test_fresh_email_omits_thread_id():
+    # A compose (no thread_id) must NOT send an empty threadId — Gmail rejects it.
+    svc = _FakeService()
+    client = GmailClient(svc)
+    fresh = Reply(thread_id="", to="x@y.com", subject="Hello", body="hi")
+    client.send_reply(fresh)
+    client.create_draft(fresh)
+    assert "threadId" not in svc.rec["send"]["body"]
+    assert "threadId" not in svc.rec["draft"]["body"]["message"]
+
+
 def test_client_archive_removes_inbox_label():
     svc = _FakeService()
     GmailClient(svc).archive("m1")

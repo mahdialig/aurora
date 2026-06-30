@@ -20,6 +20,9 @@ venv/
 build/
 dist/
 
+# Scratch / local analysis (not part of the project)
+.sim/
+
 # Editors / OS
 .vscode/
 .idea/

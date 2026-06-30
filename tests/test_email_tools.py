@@ -81,3 +81,12 @@ def test_resend_last_draft_is_action():
     assert "resend_last_draft" in tools
     assert tools["resend_last_draft"].is_action is True
     assert tools["resend_last_draft"].handler is None
+
+
+def test_compose_email_is_action():
+    tools = _tools(MailAccounts({"personal": FakeAccount()}))
+    assert "compose_email" in tools
+    assert tools["compose_email"].is_action is True
+    assert tools["compose_email"].handler is None
+    params = tools["compose_email"].schema["function"]["parameters"]
+    assert set(params["required"]) == {"account", "to", "subject", "body"}

@@ -14,7 +14,6 @@ Design notes:
 from __future__ import annotations
 
 import base64
-import re
 from pathlib import Path
 
 from aurora.sources.base import (
@@ -23,6 +22,7 @@ from aurora.sources.base import (
     MailAccount,
     Reply,
     build_raw,
+    strip_html,
 )
 
 # OAuth scope: read + modify (archive/label) + drafts + send. No permanent delete.
@@ -53,13 +53,6 @@ def _b64url_decode(data: str) -> bytes:
     return base64.urlsafe_b64decode(data.encode("utf-8"))
 
 
-def _strip_html(html: str) -> str:
-    text = re.sub(r"(?is)<(script|style).*?>.*?</\1>", "", html)
-    text = re.sub(r"(?s)<[^>]+>", " ", text)
-    text = re.sub(r"[ \t]+", " ", text)
-    return re.sub(r"\n\s*\n\s*\n+", "\n\n", text).strip()
-
-
 def extract_plaintext(payload: dict) -> str:
     """Walk a Gmail message payload and return the best plaintext body.
 
@@ -69,7 +62,7 @@ def extract_plaintext(payload: dict) -> str:
     if plain:
         return plain
     html = _find_part(payload, "text/html")
-    return _strip_html(html) if html else ""
+    return strip_html(html) if html else ""
 
 
 def _find_part(payload: dict, mime_type: str) -> str:
@@ -226,14 +219,18 @@ class GmailClient(MailAccount):
         return parse_message(msg)
 
     def create_draft(self, reply: Reply) -> str:
-        """Save ``reply`` as a Gmail draft in its thread. Returns the draft id."""
-        body = {"message": {"raw": build_raw(reply), "threadId": reply.thread_id}}
-        resp = self._svc.users().drafts().create(userId="me", body=body).execute()
+        """Save ``reply`` as a draft. Threaded if ``thread_id`` is set, else a new draft."""
+        message: dict = {"raw": build_raw(reply)}
+        if reply.thread_id:  # omit for a fresh (non-reply) email — Gmail rejects an empty threadId
+            message["threadId"] = reply.thread_id
+        resp = self._svc.users().drafts().create(userId="me", body={"message": message}).execute()
         return resp.get("id", "")
 
     def send_reply(self, reply: Reply) -> str:
-        """Send ``reply`` (real email!) in its thread. Returns the sent message id."""
-        body = {"raw": build_raw(reply), "threadId": reply.thread_id}
+        """Send ``reply`` (real email!). Threaded if ``thread_id`` is set, else a new message."""
+        body: dict = {"raw": build_raw(reply)}
+        if reply.thread_id:  # omit for a fresh (non-reply) email
+            body["threadId"] = reply.thread_id
         resp = self._svc.users().messages().send(userId="me", body=body).execute()
         return resp.get("id", "")
 

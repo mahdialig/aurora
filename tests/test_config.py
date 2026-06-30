@@ -13,6 +13,14 @@ def clean_env(monkeypatch):
         "TELEGRAM_BOT_TOKEN",
         "AURORA_ALLOWED_USER_ID",
         "AURORA_AUTONOMY_MODE",
+        "WORK_EMAIL",
+        "WORK_PASSWORD",
+        "WORK_IMAP_HOST",
+        "WORK_IMAP_PORT",
+        "WORK_SMTP_HOST",
+        "WORK_SMTP_PORT",
+        "AURORA_NOTIFY_ENABLED",
+        "AURORA_NOTIFY_INTERVAL_SECONDS",
     ):
         monkeypatch.delenv(key, raising=False)
     # Avoid reading a developer's real .env during tests.
@@ -30,6 +38,32 @@ def test_loads_minimal_without_telegram(monkeypatch):
     assert config.deepseek_api_key == "sk-test"
     assert config.deepseek_model == "deepseek-v4-flash"
     assert config.autonomy_mode == "approve_all"
+
+
+def test_work_email_optional_with_defaults(monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+    config = Config.load(require_telegram=False)
+    assert config.work_email == "" and config.work_password == ""
+    assert config.work_imap_host == "d001.dapurhosting.com"
+    assert config.work_imap_port == 993
+    assert config.work_smtp_host == "d001.dapurhosting.com"
+    assert config.work_smtp_port == 465
+
+
+def test_notify_defaults(monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+    config = Config.load(require_telegram=False)
+    assert config.notify_enabled is True
+    assert config.notify_interval_seconds == 600
+
+
+def test_notify_can_be_disabled(monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+    monkeypatch.setenv("AURORA_NOTIFY_ENABLED", "false")
+    monkeypatch.setenv("AURORA_NOTIFY_INTERVAL_SECONDS", "120")
+    config = Config.load(require_telegram=False)
+    assert config.notify_enabled is False
+    assert config.notify_interval_seconds == 120
 
 
 def test_invalid_autonomy_mode_raises(monkeypatch):

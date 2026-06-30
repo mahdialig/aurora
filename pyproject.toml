@@ -11,6 +11,7 @@ dependencies = [
     "google-api-python-client>=2.0",
     "google-auth-oauthlib>=1.2",
     "google-auth-httplib2>=0.2",
+    "tzdata>=2024.1",  # zoneinfo time-zone database (Windows has no system tzdata)
 ]
 
 [project.optional-dependencies]

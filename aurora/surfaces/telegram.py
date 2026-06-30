@@ -8,6 +8,7 @@ approval-gated (added in stage 4). Access is restricted to the single allowed us
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 
@@ -22,13 +23,20 @@ from telegram.ext import (
     filters,
 )
 
+from aurora.activity import ActivityLog
 from aurora.agent import run_agent
+from aurora.brief.compose import build_brief
 from aurora.config import Config, ConfigError
+from aurora.ledger import LedgerStore
 from aurora.llm import DeepSeekClient, LLMClient, Message
 from aurora.memory import MemoryStore
+from aurora.notify.job import start_notifier, stop_notifier
+from aurora.schedule import start_scheduler, stop_scheduler
 from aurora.sources.base import Reply
 from aurora.sources.registry import MailAccounts, build_mail_accounts
 from aurora.tools.email_tools import build_email_tools
+from aurora.tools.ledger_tools import build_ledger_tools
+from aurora.tools.notify_tools import build_notify_tools
 
 logger = logging.getLogger("aurora.telegram")
 
@@ -156,6 +164,63 @@ async def new_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     )
 
 
+@_allowed_only
+async def brief_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/brief — compose and send the daily brief on demand."""
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+    # build_brief does blocking I/O + an LLM call — keep it off the event loop.
+    text = await asyncio.to_thread(build_brief, context.application, weekly=False)
+    await update.effective_message.reply_text(
+        text or "Nothing pressing right now — your plate's clear. 🌤️"
+    )
+
+
+@_allowed_only
+async def agenda_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/agenda (alias /waiting) — show open commitments Aurora is tracking."""
+    ledger: LedgerStore = context.application.bot_data["ledger"]
+    items = ledger.open_items()
+    if not items:
+        await update.effective_message.reply_text(
+            "Nothing on your plate that I'm tracking. Tell me what to track, or /track <thing>."
+        )
+        return
+    lines = []
+    for c in items:
+        due = f" — due {c.due}" if c.due else ""
+        tag = " (waiting on them)" if c.owner == "other" else ""
+        flag = f" [{c.status}]" if c.status in ("waiting", "blocked") else ""
+        lines.append(f"• {c.id}: {c.text}{due}{tag}{flag}")
+    await update.effective_message.reply_text("Here's what's open:\n" + "\n".join(lines))
+
+
+@_allowed_only
+async def track_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/track <text> — quickly add a commitment."""
+    ledger: LedgerStore = context.application.bot_data["ledger"]
+    text = " ".join(context.args).strip() if context.args else ""
+    if not text:
+        await update.effective_message.reply_text("What should I track? e.g. /track reply to Sara by Friday")
+        return
+    c = ledger.add(text, source="chat")
+    await update.effective_message.reply_text(f"Tracking ({c.id}): {c.text}")
+
+
+@_allowed_only
+async def done_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/done <id> — mark a tracked commitment complete."""
+    ledger: LedgerStore = context.application.bot_data["ledger"]
+    cid = " ".join(context.args).strip() if context.args else ""
+    if not cid:
+        await update.effective_message.reply_text("Which one? Give me its id, e.g. /done c3 (see /agenda).")
+        return
+    done = ledger.mark_done(cid)
+    if done is None:
+        await update.effective_message.reply_text(f"I couldn't find a commitment with id {cid}. Check /agenda.")
+    else:
+        await update.effective_message.reply_text(f"Done ✅: {done.text}")
+
+
 # --------------------------------------------------------------------------- #
 # Pending-action stash (server-side; callback_data is too small for full values)
 # --------------------------------------------------------------------------- #
@@ -195,13 +260,38 @@ def _email_capability(accounts: MailAccounts) -> str:
         "words — concise, highlighting what needs attention. Never paste the inbox verbatim or "
         "list every message mechanically; you are a delegate, not an email viewer. "
         "To draft, change, or send a reply, you MUST call reply_to_email with the reply body "
-        "(read the email first). To re-send a reply you already drafted in this conversation, "
-        "call resend_last_draft. NEVER write the reply text directly in chat or ask 'send it?' "
+        "(read the email first). To write a brand-NEW email (not a reply), call compose_email "
+        "(make sure you have the recipient's address). To re-send a reply you already drafted in "
+        "this conversation, call resend_last_draft. NEVER write the reply text directly in chat or ask 'send it?' "
         "in words — those tools are the ONLY way the user can act (they show Send / Save-draft / "
         "Cancel buttons). "
         "Keep email replies CONCISE by default. Follow only the user's CURRENT preferences (in "
         "MEMORY below) and their latest instruction for length and tone — do NOT copy the length "
-        "or verbosity of your earlier drafts in this conversation."
+        "or verbosity of your earlier drafts in this conversation. "
+        "FIDELITY: reporting in your own words applies to the FRAMING, never the content. When you "
+        "reproduce actual message text — quoting it, reading it back, or confirming what you just "
+        "sent or drafted — copy it EXACTLY: never change a word, number, name, or emoji. Altering "
+        "even one detail makes the user doubt something went wrong, especially when they're checking "
+        "that a message is correct or went through. When confirming an action, restate the exact text "
+        "you acted on (use the real draft/message, don't regenerate it from memory). If exactness "
+        "might matter, quote verbatim; otherwise summarize without inventing or tweaking specifics."
+    )
+
+
+def _recent_notifications_note(context: ContextTypes.DEFAULT_TYPE) -> str:
+    """Tell the agent which emails Aurora just pinged about, so reactions resolve."""
+    recents = context.application.bot_data.get("recent_notifications") or []
+    if not recents:
+        return ""
+    lines = "\n".join(
+        f"- from {r.get('from', '?')} ({r.get('account', '?')}): {r.get('subject', '')}"
+        for r in recents[-5:]
+    )
+    return (
+        "\n\nRECENT NOTIFICATIONS you proactively sent (most recent last). If the user reacts to "
+        "one ('that's important', 'stop notifying me about these', or answering whether it "
+        "matters), call set_notification_rule to remember the lesson, then confirm in one line:\n"
+        + lines
     )
 
 
@@ -209,13 +299,20 @@ async def _respond(update: Update, context: ContextTypes.DEFAULT_TYPE, user_text
     """Core turn: run the agent loop (memory + email tools) and reply."""
     llm: LLMClient = context.application.bot_data["llm"]
     memory: MemoryStore = context.application.bot_data["memory"]
+    ledger: LedgerStore = context.application.bot_data["ledger"]
     accounts: MailAccounts = context.application.bot_data["mail_accounts"]
     tools = context.application.bot_data["email_tools"]
 
     history: list[Message] = context.chat_data.setdefault("history", [])
     history.append(Message("user", user_text))
 
-    system_prompt = SYSTEM_PROMPT + _email_capability(accounts) + memory.render_for_prompt()
+    system_prompt = (
+        SYSTEM_PROMPT
+        + _email_capability(accounts)
+        + _recent_notifications_note(context)
+        + memory.render_for_prompt()
+        + ledger.render_for_prompt()
+    )
     messages = [{"role": "system", "content": system_prompt}]
     messages += [m.as_dict() for m in history[-MAX_HISTORY_MESSAGES:]]
 
@@ -319,6 +416,23 @@ async def _propose_action(update, context, result, history: list[Message]) -> No
         await _present_reply(update, context, account_name, reply, history)
         return
 
+    if result.action_name == "compose_email":
+        account_name = (args.get("account") or "").strip()
+        to = (args.get("to") or "").strip()
+        subject = (args.get("subject") or "").strip()
+        body = (args.get("body") or "").strip()
+        if accounts.get(account_name) is None:
+            await update.effective_message.reply_text(
+                f"I can't send from '{account_name or '?'}' — that account isn't connected."
+            )
+            return
+        if not to or not body:
+            await update.effective_message.reply_text("I couldn't put that email together — try again?")
+            return
+        fresh = Reply(thread_id="", to=to, subject=subject, body=body)
+        await _present_reply(update, context, account_name, fresh, history)
+        return
+
     if result.action_name != "reply_to_email":
         await update.effective_message.reply_text("I'm not able to do that one yet.")
         return
@@ -375,12 +489,17 @@ async def on_reply_action(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.edit_message_text(base + "\n\n⚠ That account is no longer connected.")
         return
 
+    activity: ActivityLog | None = context.application.bot_data.get("activity")
     try:
         if action == "send":
             account.send_reply(reply)
+            if activity:
+                activity.record(f"Sent an email to {reply.to} ({account_name}): {reply.subject}")
             await query.edit_message_text(base + "\n\n✅ Sent.")
         else:  # savedraft
             account.create_draft(reply)
+            if activity:
+                activity.record(f"Saved a draft to {reply.to} ({account_name}): {reply.subject}")
             await query.edit_message_text(base + "\n\n📝 Saved to Drafts.")
     except Exception as exc:  # noqa: BLE001
         logger.exception("send/draft failed")
@@ -413,22 +532,76 @@ async def on_memory_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await query.edit_message_text(base + "\n\n— okay, not saving that.")
 
 
+@_allowed_only
+async def on_track_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Tap on '➕ Track this' / 'Dismiss' under a proactive notification."""
+    query = update.callback_query
+    await query.answer()
+
+    action, _, token = (query.data or "").partition(":")
+    pending: dict[str, dict] = context.application.bot_data.setdefault("pending_commitments", {})
+    payload = pending.pop(token, None)
+    base = query.message.text or ""
+
+    if payload is None:
+        await query.edit_message_text(base + "\n\n(that suggestion has expired)")
+        return
+
+    if action == "track":
+        ledger: LedgerStore = context.application.bot_data["ledger"]
+        # source-key dedup means tapping twice (or after the agent already tracked it)
+        # won't create a duplicate.
+        c = ledger.add(payload["text"], kind="reply", source=payload.get("source", ""))
+        await query.edit_message_text(base + f"\n\n➕ Tracking ({c.id}): {c.text}")
+    else:  # untrack / dismiss
+        await query.edit_message_text(base + "\n\n— okay, not tracking that.")
+
+
 # --------------------------------------------------------------------------- #
 # Wiring
 # --------------------------------------------------------------------------- #
 
 
+async def _on_startup(app: Application) -> None:
+    config: Config = app.bot_data["config"]
+    if config.notify_enabled and not app.bot_data["mail_accounts"].is_empty():
+        start_notifier(app)
+    else:
+        logger.info("Notifier disabled (notify_enabled=%s).", config.notify_enabled)
+    if config.brief_enabled or config.weekly_review_enabled:
+        start_scheduler(app)
+    else:
+        logger.info("Scheduler disabled (brief + weekly review both off).")
+
+
+async def _on_shutdown(app: Application) -> None:
+    stop_notifier(app)
+    stop_scheduler(app)
+
+
 def build_application(config: Config, llm: LLMClient, memory: MemoryStore | None = None) -> Application:
     """Assemble the Telegram application with handlers and shared state."""
-    app = Application.builder().token(config.telegram_bot_token).build()
+    app = (
+        Application.builder()
+        .token(config.telegram_bot_token)
+        .post_init(_on_startup)
+        .post_shutdown(_on_shutdown)
+        .build()
+    )
     mem = memory or MemoryStore(config.data_dir)
     accounts = build_mail_accounts(config)
+    ledger = LedgerStore(config.data_dir)
+    activity = ActivityLog(config.data_dir)
 
     app.bot_data["config"] = config
     app.bot_data["llm"] = llm
     app.bot_data["memory"] = mem
     app.bot_data["mail_accounts"] = accounts
-    app.bot_data["email_tools"] = build_email_tools(accounts)
+    app.bot_data["ledger"] = ledger
+    app.bot_data["activity"] = activity
+    app.bot_data["email_tools"] = (
+        build_email_tools(accounts) + build_notify_tools(mem) + build_ledger_tools(ledger)
+    )
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("whoami", whoami))
@@ -437,7 +610,12 @@ def build_application(config: Config, llm: LLMClient, memory: MemoryStore | None
     app.add_handler(CommandHandler("forget", forget))
     app.add_handler(CommandHandler("new", new_conversation))
     app.add_handler(CommandHandler("inbox", inbox))
+    app.add_handler(CommandHandler("brief", brief_cmd))
+    app.add_handler(CommandHandler(["agenda", "waiting"], agenda_cmd))
+    app.add_handler(CommandHandler("track", track_cmd))
+    app.add_handler(CommandHandler("done", done_cmd))
     app.add_handler(CallbackQueryHandler(on_memory_button, pattern=r"^(remember|dismiss):"))
+    app.add_handler(CallbackQueryHandler(on_track_button, pattern=r"^(track|untrack):"))
     app.add_handler(CallbackQueryHandler(on_reply_action, pattern=r"^(send|savedraft|cancelreply):"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
     return app
