@@ -122,6 +122,7 @@ def load_credentials(credentials_file: Path, token_file: Path):
 
     Raises :class:`GmailAuthError` (with a fix hint) if there's no usable token.
     """
+    from google.auth.exceptions import RefreshError
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
 
@@ -134,7 +135,17 @@ def load_credentials(credentials_file: Path, token_file: Path):
     if creds and creds.valid:
         return creds
     if creds and creds.expired and creds.refresh_token:
-        creds.refresh(Request())
+        # A refresh can still fail if the refresh token itself expired or was
+        # revoked (e.g. a "Testing"-mode OAuth app caps it at ~7 days). Convert
+        # Google's RefreshError into our GmailAuthError so callers treat it as
+        # "needs re-auth" (skip the account, alert) rather than crashing.
+        try:
+            creds.refresh(Request())
+        except RefreshError as exc:
+            raise GmailAuthError(
+                "Gmail login expired and couldn't refresh. "
+                "Re-run: python -m aurora.sources.gmail_auth"
+            ) from exc
         token_file.write_text(creds.to_json(), encoding="utf-8")
         return creds
     raise GmailAuthError(

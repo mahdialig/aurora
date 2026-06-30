@@ -573,6 +573,26 @@ async def _on_startup(app: Application) -> None:
     else:
         logger.info("Scheduler disabled (brief + weekly review both off).")
 
+    # If Gmail was set up (creds + token present) but didn't connect, the token has
+    # almost certainly expired. Tell the user out loud instead of failing silently.
+    accounts = app.bot_data["mail_accounts"]
+    if (
+        accounts.get("personal") is None
+        and config.google_credentials_file.exists()
+        and config.google_token_file.exists()
+    ):
+        try:
+            await app.bot.send_message(
+                chat_id=config.allowed_user_id,
+                text=(
+                    "⚠️ Heads up: my Gmail access isn't working right now — the login has "
+                    "likely expired. Re-authorise on the laptop and redeploy the token when "
+                    "you can. Your work email is unaffected."
+                ),
+            )
+        except Exception:  # noqa: BLE001 - an alert failure must not block startup
+            logger.exception("Failed to send Gmail-auth alert")
+
 
 async def _on_shutdown(app: Application) -> None:
     stop_notifier(app)
@@ -626,6 +646,9 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
+    # httpx logs every request URL at INFO — and the Telegram API URL embeds the
+    # bot token. Silence it to WARNING so the token never lands in the journal/logs.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     try:
         config = Config.load(require_telegram=True)
     except ConfigError as exc:

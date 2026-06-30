@@ -1,11 +1,15 @@
 import base64
 import email
 
+import pytest
+
 from aurora.sources.base import EmailMessage, Reply, build_raw, reply_subject
 from aurora.sources.gmail import (
+    GmailAuthError,
     GmailClient,
     extract_plaintext,
     header,
+    load_credentials,
     parse_message,
     parse_summary,
 )
@@ -106,6 +110,41 @@ def test_reply_to_message_builds_references_chain():
     assert reply.in_reply_to == "<abc@co.com>"
     assert reply.references == "<root@co.com> <abc@co.com>"
     assert reply.thread_id == "t1"
+
+
+# --- credential refresh failure → GmailAuthError -------------------------- #
+
+
+def test_missing_token_raises_autherror(tmp_path):
+    with pytest.raises(GmailAuthError):
+        load_credentials(tmp_path / "credentials.json", tmp_path / "nope.json")
+
+
+def test_expired_refresh_token_becomes_autherror(tmp_path, monkeypatch):
+    # A revoked/expired refresh token makes creds.refresh() raise Google's
+    # RefreshError; load_credentials must surface that as GmailAuthError so the
+    # bot skips Gmail (and alerts) instead of crash-looping.
+    import google.oauth2.credentials as gcreds
+    from google.auth.exceptions import RefreshError
+
+    token = tmp_path / "token.json"
+    token.write_text("{}", encoding="utf-8")
+
+    class FakeCreds:
+        valid = False
+        expired = True
+        refresh_token = "r"
+
+        def refresh(self, _request):
+            raise RefreshError("Token has been expired or revoked.")
+
+    monkeypatch.setattr(
+        gcreds.Credentials,
+        "from_authorized_user_file",
+        classmethod(lambda cls, *a, **k: FakeCreds()),
+    )
+    with pytest.raises(GmailAuthError):
+        load_credentials(tmp_path / "credentials.json", token)
 
 
 # --- GmailClient against a fake service ----------------------------------- #
