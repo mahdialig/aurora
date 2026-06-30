@@ -157,3 +157,39 @@ Append a dated entry at the end of every working session.
   `/brief` hit the quiet-day path. The don't-miss-a-thing engine works end-to-end in production.
 - **State updated for Phase 2** (self-learning / `/onboard` + reflection) — to be started in a fresh
   session; see STATE.md "Next up" and DECISIONS D17.
+
+## Session 10 — Phase 2 slice 1: /onboard + preference profile (2026-06-30)
+- **Planned Phase 2 and built slice 1** (the lowest-risk, immediately-useful piece). User picks this
+  session: interview = one Q at a time, **preset buttons + free-text**; write gate = **confirm per answer**
+  (and fields must stay adjustable later, by Aurora or the user); storage = **a new separate profile file**;
+  question set = "you recommend it, but ground it in PA/EA best practice." Researched EA/PA week-1 onboarding
+  practice (ProAssisting, Connect, Boldly, TheEACampus, Worxbee) → the recurring buckets (how to address +
+  rhythm, channels/urgency, the principal's email voice, escalate-vs-handle, VIPs, notify threshold), each
+  mapping to a real Aurora lever.
+- **New `aurora/profile/` package** (mirrors `aurora/ledger/`); 155 tests pass (was 129; +26), ruff clean:
+  - `store.py` — `ProfileStore`/`ProfileField` over `data/profile/profile.md` (hand-editable
+    `- key: value · on:DATE src:SRC`). **Keyed**, so `set()` **upserts by key** (corrections update in place,
+    no dupes) and `remove()` truly reverts (D8). Atomic (tmp + `os.replace`) + `threading.Lock` like the
+    ledger. `render_for_prompt()` emits a `PROFILE — standing preferences` block (distinct empty-state that
+    nudges `/onboard`).
+  - `interview.py` — `Question` dataclass + `QUESTIONS` (8 core: preferred_name, work_hours, dnd,
+    notify_threshold, vips, reply_tone, reply_length, signature; +2 optional: handle_vs_check, off_my_plate).
+    `distill(llm, q, raw)` tidies free-text into one clean preference line via a single `llm.complete`, with
+    **raw-text fallback on any failure** (mirrors `brief/compose.py`).
+  - Tests: `test_profile_store.py` (roundtrip, upsert-no-dup, remove-reverts, empty-value rejected, render,
+    hand-edited + unparseable-line tolerance), `test_profile_interview.py` (unique keys, well-formed options,
+    core levers present, distill llm-output / fallback / empty).
+- **Telegram wiring** (`surfaces/telegram.py`): registered `ProfileStore` in `bot_data`; injected
+  `profile.render_for_prompt()` into `_respond`'s system prompt (before memory + ledger). New commands
+  `/onboard` (start/re-run/review/cancel menu when a profile already exists) and `/profile`
+  (`/profile forget <key>`). Hand-rolled multi-turn state in `chat_data["onboarding"]` (no
+  `ConversationHandler` exists); `chat()` intercepts typed answers while a interview is active. New
+  `on_onboard_button` `CallbackQueryHandler(pattern=r"^onb:")` — **preset tap saves directly + advances**
+  (the tap is the confirmation); **free-text gets a Save/Edit/Skip confirm card** (distillation can be wrong).
+  `/start` greeting now prefers the profile's `preferred_name` over the memory name guess.
+- **Notify wire** (`notify/job.py` only, classifier untouched): `poll_once` gained an optional `profile=`;
+  when non-empty its block is appended to the preferences fed to the classifier, so onboarding's
+  `notify_threshold`/`vips` shape live pings. `start_notifier` reads `bot_data.get("profile")`.
+- **NOT yet live-verified through the running bot** (deploy is `git push origin main` → self-hosted runner;
+  laptop poller stays off). Next: deploy + walk `/onboard` end-to-end, confirm a draft reflects the chosen
+  tone/signature, and that `/profile forget` reverts. Then slice 2 (three-layer memory) builds on this store.

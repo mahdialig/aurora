@@ -3,10 +3,16 @@
 Prioritized. Move items to WORKLOG when done. Keep "Next up" honest.
 
 ## Next up (in order)
-1. **Self-learning upgrade (Phase 2)** — make D3's "correct" half real (see D17): onboarding
-   interview (`/onboard`), three-layer memory (episodic / semantic / procedural), confirm-before-save
-   write gate with scope+provenance+dedup, and the nightly **reflection job** that consolidates
-   corrections + decays stale entries. Capture corrections (edited/cancelled drafts) as lessons.
+1. **Self-learning upgrade (Phase 2)** — make D3's "correct" half real (see D17). Build incrementally:
+   - **Slice 1 — onboarding interview (`/onboard`)** ✅ (session 10): week-1 EA questions → new keyed,
+     hand-editable `ProfileStore` (`data/profile/profile.md`), rendered into the chat prompt + notify
+     classifier. *Still to do: live-verify through the bot.*
+   - **Slice 2 — three-layer memory**: `ProfileStore` becomes the semantic layer; add episodic log +
+     procedural playbooks.
+   - **Slice 3 — write-gate + capture corrections**: turn edited/cancelled drafts + notification reactions
+     into one-line, scoped, deduped, provenance-carrying lessons (reuse slice 1's confirm gate + upsert).
+   - **Slice 4 — nightly reflection job**: ride `aurora/schedule/` to consolidate episodic entries + decay
+     stale ones (user confirms).
 2. **Calendar (Google) — Phase 3** — feed meetings/deadlines into the ledger + brief; conflict checks,
    time-blocking. Then tasks (largely the ledger itself), Obsidian notes, finance.
 

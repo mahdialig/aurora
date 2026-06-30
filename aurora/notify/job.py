@@ -55,12 +55,16 @@ def format_notification(account: str, summary, verdict: Verdict) -> str:
     return f"📬 New from {who} ({account}): {head}"
 
 
-async def poll_once(accounts, state: NotifyState, llm, memory, notify, *, limit: int = _LIST_LIMIT) -> None:
+async def poll_once(
+    accounts, state: NotifyState, llm, memory, notify, *, limit: int = _LIST_LIMIT, profile=None
+) -> None:
     """One sweep: scan each account for new mail, classify it, ping what matters.
 
     ``notify`` is an async callable ``(text, meta|None) -> None``. ``meta`` is a small
     dict describing the email (for conversational follow-up context), or None for the
-    "…and N more" summary line.
+    "…and N more" summary line. ``profile`` (optional) is the user's preference profile;
+    its standing preferences (notification threshold, VIPs) are fed to the classifier
+    alongside memory so onboarding answers actually shape what gets a live ping.
     """
     for name, acc in accounts.resolve("all"):
         try:
@@ -84,6 +88,8 @@ async def poll_once(accounts, state: NotifyState, llm, memory, notify, *, limit:
             for s in new_summaries
         ]
         memory_text = memory.render_for_prompt() if memory else ""
+        if profile is not None and not profile.is_empty():
+            memory_text = (memory_text + profile.render_for_prompt()).strip()
         try:
             verdicts = await asyncio.to_thread(classify_new, llm, items, memory_text)
         except Exception:  # noqa: BLE001
@@ -119,6 +125,7 @@ def start_notifier(application) -> None:
     accounts = application.bot_data["mail_accounts"]
     llm = application.bot_data["llm"]
     memory = application.bot_data["memory"]
+    profile = application.bot_data.get("profile")
     uid = config.allowed_user_id
     state = NotifyState(config.data_dir)
     application.bot_data["notify_state"] = state
@@ -157,7 +164,7 @@ def start_notifier(application) -> None:
         logger.info("Notifier started (every %ss, accounts=%s).", interval, accounts.names())
         while True:
             try:
-                await poll_once(accounts, state, llm, memory, notify)
+                await poll_once(accounts, state, llm, memory, notify, profile=profile)
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001 - never let a bad cycle stop the loop

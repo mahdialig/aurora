@@ -31,6 +31,7 @@ from aurora.ledger import LedgerStore
 from aurora.llm import DeepSeekClient, LLMClient, Message
 from aurora.memory import MemoryStore
 from aurora.notify.job import start_notifier, stop_notifier
+from aurora.profile import QUESTIONS, ProfileStore, distill
 from aurora.schedule import start_scheduler, stop_scheduler
 from aurora.sources.base import Reply
 from aurora.sources.registry import MailAccounts, build_mail_accounts
@@ -98,10 +99,17 @@ def _allowed_only(handler):
 @_allowed_only
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     memory: MemoryStore = context.application.bot_data["memory"]
-    name = memory.display_name() or update.effective_user.first_name
+    profile: ProfileStore = context.application.bot_data["profile"]
+    pref = profile.get("preferred_name")
+    name = (pref.value if pref else None) or memory.display_name() or update.effective_user.first_name
+    nudge = (
+        " New here? /onboard sets up how I work for you."
+        if profile.is_empty()
+        else " /memory shows what I know; /profile shows your preferences."
+    )
     await update.effective_message.reply_text(
         f"Hi {name} — Aurora here. Just talk to me: ask what's new in your email, ask me to "
-        "reply to someone, or tell me things to remember. /memory shows what I know."
+        "reply to someone, or tell me things to remember." + nudge
     )
 
 
@@ -222,6 +230,234 @@ async def done_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# /onboard — the week-1 EA interview that seeds the preference profile
+# --------------------------------------------------------------------------- #
+
+
+def _profile_listing(profile: ProfileStore) -> str:
+    items = profile.fields()
+    if not items:
+        return "(nothing saved yet)"
+    return "\n".join(f"• {f.key.replace('_', ' ')}: {f.value}" for f in items)
+
+
+def _onboard_options(context: ContextTypes.DEFAULT_TYPE, question) -> list[tuple[str, str]]:
+    """Preset (button label, value) pairs for a question, plus any dynamic ones."""
+    options = list(question.options)
+    if question.key == "preferred_name":
+        memory: MemoryStore = context.application.bot_data["memory"]
+        known = memory.display_name()
+        if known:
+            options = [(known, known), *options]
+    return options
+
+
+async def _onboard_send_question(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> None:
+    state = context.chat_data["onboarding"]
+    idx = state["idx"]
+    question = QUESTIONS[idx]
+    rows = [
+        [InlineKeyboardButton(label, callback_data=f"onb:pick:{i}")]
+        for i, (label, _value) in enumerate(_onboard_options(context, question))
+    ]
+    rows.append(
+        [
+            InlineKeyboardButton("⏭ Skip", callback_data="onb:skip"),
+            InlineKeyboardButton("✖ Stop", callback_data="onb:stop"),
+        ]
+    )
+    text = f"({idx + 1}/{len(QUESTIONS)}) {question.label}"
+    text += f"\n{question.hint}" if question.hint else "\n(Tap an option, or just type your own answer.)"
+    state["awaiting"] = "answer"
+    state["pending"] = None
+    await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=InlineKeyboardMarkup(rows))
+
+
+async def _onboard_send_confirm(context: ContextTypes.DEFAULT_TYPE, chat_id: int, value: str) -> None:
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("✅ Save", callback_data="onb:save"),
+                InlineKeyboardButton("✏️ Edit", callback_data="onb:edit"),
+                InlineKeyboardButton("⏭ Skip", callback_data="onb:skip"),
+            ]
+        ]
+    )
+    await context.bot.send_message(
+        chat_id=chat_id, text=f"I'll note: {value}\nLooks right?", reply_markup=keyboard
+    )
+
+
+async def _onboard_begin(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> None:
+    context.chat_data["onboarding"] = {"active": True, "idx": 0, "awaiting": "answer", "pending": None}
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=(
+            "Let's set up how I work for you — a few quick questions so I can tailor what I "
+            "flag, how I draft your email, and when I leave you alone. Tap an option or type "
+            "your own; ⏭ Skip any, ✖ Stop anytime. You can redo this with /onboard later."
+        ),
+    )
+    await _onboard_send_question(context, chat_id)
+
+
+async def _onboard_advance(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> None:
+    state = context.chat_data.get("onboarding")
+    if not state:
+        return
+    state["idx"] += 1
+    if state["idx"] >= len(QUESTIONS):
+        await _onboard_finish(context, chat_id)
+    else:
+        await _onboard_send_question(context, chat_id)
+
+
+async def _onboard_finish(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> None:
+    context.chat_data.pop("onboarding", None)
+    profile: ProfileStore = context.application.bot_data["profile"]
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=(
+            "All set — thank you. Here's what I've got:\n\n"
+            + _profile_listing(profile)
+            + "\n\nI'll work to these from now on. Change anything anytime: re-run /onboard, "
+            "or /profile forget <key>."
+        ),
+    )
+
+
+async def _onboard_handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
+    """A typed message during onboarding — treat it as the answer to the current question."""
+    state = context.chat_data["onboarding"]
+    question = QUESTIONS[state["idx"]]
+    llm: LLMClient = context.application.bot_data["llm"]
+    chat_id = update.effective_chat.id
+    text = (text or "").strip()
+    if not text:
+        await update.effective_message.reply_text("Type your answer, or tap ⏭ Skip / ✖ Stop.")
+        return
+    await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+    # distill does one LLM call (with raw-text fallback) — keep it off the event loop.
+    value = await asyncio.to_thread(distill, llm, question, text)
+    state["pending"] = value
+    state["awaiting"] = "confirm"
+    await _onboard_send_confirm(context, chat_id, value)
+
+
+@_allowed_only
+async def onboard_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/onboard — run (or re-run) the preference interview."""
+    profile: ProfileStore = context.application.bot_data["profile"]
+    if not profile.is_empty():
+        keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("🔄 Re-run", callback_data="onb:start:rerun"),
+                    InlineKeyboardButton("👀 Review", callback_data="onb:start:review"),
+                    InlineKeyboardButton("✖ Cancel", callback_data="onb:start:cancel"),
+                ]
+            ]
+        )
+        await update.effective_message.reply_text(
+            "You've already set up your profile. Re-run the interview, review it, or cancel?",
+            reply_markup=keyboard,
+        )
+        return
+    await _onboard_begin(context, update.effective_chat.id)
+
+
+@_allowed_only
+async def profile_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/profile — show stored preferences; /profile forget <key> drops one."""
+    profile: ProfileStore = context.application.bot_data["profile"]
+    args = context.args or []
+    if args and args[0].lower() == "forget":
+        key = args[1].strip() if len(args) > 1 else ""
+        if not key:
+            await update.effective_message.reply_text("Which one? e.g. /profile forget reply_tone")
+            return
+        removed = profile.remove(key)
+        if removed is None:
+            await update.effective_message.reply_text(
+                f"No profile field named '{key}'. Check /profile for the keys."
+            )
+        else:
+            await update.effective_message.reply_text(f"Forgotten: {removed.key} ({removed.value}).")
+        return
+    if profile.is_empty():
+        await update.effective_message.reply_text(
+            "Your profile is empty. Run /onboard and I'll learn how you like to work."
+        )
+        return
+    await update.effective_message.reply_text(
+        "Your preferences:\n"
+        + _profile_listing(profile)
+        + "\n\n(/onboard to revise, /profile forget <key> to clear one.)"
+    )
+
+
+@_allowed_only
+async def on_onboard_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Taps inside the onboarding interview (pick / save / edit / skip / stop / start menu)."""
+    query = update.callback_query
+    await query.answer()
+    parts = (query.data or "").split(":")
+    action = parts[1] if len(parts) > 1 else ""
+    chat_id = update.effective_chat.id
+    base = query.message.text or ""
+    profile: ProfileStore = context.application.bot_data["profile"]
+
+    # The "you've already onboarded" menu — handled before the active-state check.
+    if action == "start":
+        sub = parts[2] if len(parts) > 2 else ""
+        if sub == "cancel":
+            await query.edit_message_text(base + "\n\n— okay, maybe later.")
+        elif sub == "review":
+            await query.edit_message_text(base + "\n\nYour preferences:\n" + _profile_listing(profile))
+        elif sub == "rerun":
+            await query.edit_message_text(base + "\n\n🔄 Starting over.")
+            await _onboard_begin(context, chat_id)
+        return
+
+    state = context.chat_data.get("onboarding")
+    if not state or not state.get("active"):
+        await query.edit_message_text(base + "\n\n(this interview has expired — /onboard to start again)")
+        return
+
+    question = QUESTIONS[state["idx"]]
+
+    if action == "pick":
+        options = _onboard_options(context, question)
+        try:
+            _label, value = options[int(parts[2])]
+        except (IndexError, ValueError):
+            await query.edit_message_text(base + "\n\n(couldn't read that choice — type your answer instead)")
+            return
+        profile.set(question.key, value, source="onboarding")
+        await query.edit_message_text(base + f"\n\n✅ Saved: {value}")
+        await _onboard_advance(context, chat_id)
+    elif action == "save":
+        value = state.get("pending")
+        if value:
+            profile.set(question.key, value, source="onboarding")
+            await query.edit_message_text(base + f"\n\n✅ Saved: {value}")
+        else:
+            await query.edit_message_text(base + "\n\n(nothing to save — type your answer)")
+            return
+        await _onboard_advance(context, chat_id)
+    elif action == "edit":
+        state["awaiting"] = "answer"
+        state["pending"] = None
+        await query.edit_message_text(base + "\n\n✏️ Okay — type your answer.")
+    elif action == "skip":
+        await query.edit_message_text(base + "\n\n⏭ Skipped.")
+        await _onboard_advance(context, chat_id)
+    elif action == "stop":
+        await query.edit_message_text(base + "\n\n✖ Stopped — I saved what you'd confirmed so far.")
+        await _onboard_finish(context, chat_id)
+
+
+# --------------------------------------------------------------------------- #
 # Pending-action stash (server-side; callback_data is too small for full values)
 # --------------------------------------------------------------------------- #
 
@@ -299,6 +535,7 @@ async def _respond(update: Update, context: ContextTypes.DEFAULT_TYPE, user_text
     """Core turn: run the agent loop (memory + email tools) and reply."""
     llm: LLMClient = context.application.bot_data["llm"]
     memory: MemoryStore = context.application.bot_data["memory"]
+    profile: ProfileStore = context.application.bot_data["profile"]
     ledger: LedgerStore = context.application.bot_data["ledger"]
     accounts: MailAccounts = context.application.bot_data["mail_accounts"]
     tools = context.application.bot_data["email_tools"]
@@ -310,6 +547,7 @@ async def _respond(update: Update, context: ContextTypes.DEFAULT_TYPE, user_text
         SYSTEM_PROMPT
         + _email_capability(accounts)
         + _recent_notifications_note(context)
+        + profile.render_for_prompt()
         + memory.render_for_prompt()
         + ledger.render_for_prompt()
     )
@@ -359,6 +597,11 @@ async def _respond(update: Update, context: ContextTypes.DEFAULT_TYPE, user_text
 @_allowed_only
 async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Free-form chat — Aurora may use tools (e.g. email) as needed."""
+    # An onboarding interview in progress claims the next typed message as its answer,
+    # before it falls through to the agent loop.
+    if context.chat_data.get("onboarding", {}).get("active"):
+        await _onboard_handle_text(update, context, update.effective_message.text or "")
+        return
     await _respond(update, context, update.effective_message.text or "")
 
 
@@ -609,6 +852,7 @@ def build_application(config: Config, llm: LLMClient, memory: MemoryStore | None
         .build()
     )
     mem = memory or MemoryStore(config.data_dir)
+    profile = ProfileStore(config.data_dir)
     accounts = build_mail_accounts(config)
     ledger = LedgerStore(config.data_dir)
     activity = ActivityLog(config.data_dir)
@@ -616,6 +860,7 @@ def build_application(config: Config, llm: LLMClient, memory: MemoryStore | None
     app.bot_data["config"] = config
     app.bot_data["llm"] = llm
     app.bot_data["memory"] = mem
+    app.bot_data["profile"] = profile
     app.bot_data["mail_accounts"] = accounts
     app.bot_data["ledger"] = ledger
     app.bot_data["activity"] = activity
@@ -634,6 +879,9 @@ def build_application(config: Config, llm: LLMClient, memory: MemoryStore | None
     app.add_handler(CommandHandler(["agenda", "waiting"], agenda_cmd))
     app.add_handler(CommandHandler("track", track_cmd))
     app.add_handler(CommandHandler("done", done_cmd))
+    app.add_handler(CommandHandler("onboard", onboard_cmd))
+    app.add_handler(CommandHandler("profile", profile_cmd))
+    app.add_handler(CallbackQueryHandler(on_onboard_button, pattern=r"^onb:"))
     app.add_handler(CallbackQueryHandler(on_memory_button, pattern=r"^(remember|dismiss):"))
     app.add_handler(CallbackQueryHandler(on_track_button, pattern=r"^(track|untrack):"))
     app.add_handler(CallbackQueryHandler(on_reply_action, pattern=r"^(send|savedraft|cancelreply):"))

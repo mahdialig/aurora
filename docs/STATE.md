@@ -5,7 +5,7 @@
 > folder, then give a 4–6 line recap and ask what to work on. Keep this file current
 > at the end of each working session.
 
-_Last updated: 2026-06-30 (end of session 9 — VPS deploy + M4 verified live; next: Phase 2)._
+_Last updated: 2026-06-30 (end of session 10 — Phase 2 slice 1 built: /onboard + profile store; next: live-verify, then slice 2)._
 
 ## One-line status
 Aurora is a Telegram-based conversational AI assistant that reads, searches, replies to, and
@@ -66,13 +66,19 @@ Telegram; she uses tools (currently email) to act, and reports in her own words.
   `git push origin main` (self-hosted runner). See **D18**. Gmail OAuth published to Production (token
   no longer expires); Telegram token no longer logged. Both session-9 follow-ups closed.
 
-## Next up — Phase 2: make Aurora *learn* you (start here)
+## Next up — Phase 2: make Aurora *learn* you (in progress)
 The roadmap's next milestone (BACKLOG #1; design in **D17**). Goal: complete D3's "correct" half so
 Aurora discovers and adapts to the user's preferences instead of only ever *adding* to a flat memory.
 Scope (build incrementally, one slice per session):
-1. **Onboarding interview** — a `/onboard` flow asking the proven week-1 EA questions, writing answers
-   into the preference store. (Lowest-risk first slice; immediately useful.)
-2. **Three-layer memory** — split today's flat `data/memory/memory.md` into episodic log / distilled
+1. **Onboarding interview** ✅ (session 10) — `/onboard` runs the week-1 EA question set (8 core + 2
+   optional, grounded in PA/EA best practice); one question at a time, preset buttons + free-text;
+   confirm per answer (preset tap saves directly, free-text gets a Save/Edit/Skip card). Answers land in a
+   new keyed, hand-editable **`ProfileStore`** (`data/profile/profile.md`, atomic+locked, upsert-by-key so
+   corrections update in place and forgetting truly reverts). `profile.render_for_prompt()` is injected into
+   the chat prompt and the notify classifier, so tone/escalation/VIPs/threshold bite immediately. `/profile`
+   views it; `/profile forget <key>` clears one. **NOT yet live-verified through the bot** — next step.
+2. **Three-layer memory** — `ProfileStore` *becomes* the semantic layer. Split today's flat
+   `data/memory/memory.md` into episodic log / distilled
    semantic preferences (what `render_for_prompt` emits) / procedural playbooks. Touches
    `aurora/memory/store.py` + prompt assembly in `aurora/surfaces/telegram.py` (`_respond`).
 3. **Write-gate + capture corrections** — the "Remember this" button is already the gate; also turn an

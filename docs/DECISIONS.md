@@ -131,3 +131,13 @@ corrections on real proposals — completing the "correct" half of D3. Backed by
 (episodic log / distilled semantic preferences / procedural playbooks) with a confirm-before-save
 write gate (scope, provenance, dedup) and a nightly reflection job. Guardrails: distilled lessons in
 the prompt (not transcripts), every durable memory human-confirmed + traceable, TTL/decay vs drift.
+
+**Slice-1 build note (session 10):** the profile is a new keyed store `ProfileStore`
+(`aurora/profile/`, `data/profile/profile.md`) — deliberately separate from the flat `MemoryStore`, and
+modeled on the ledger (atomic+locked, **upsert-by-key**) rather than memory, because preferences must
+update in place and forgetting must truly revert (D8). This store **is the seed of the semantic layer**:
+slice 2 keeps it as-is and adds episodic + procedural alongside; slices 3–4 write corrections/reflections
+back through its `set()` (upsert = dedup + provenance for free). Interview UX (user-chosen): one question
+at a time, preset buttons + free-text; a **preset tap saves directly** (the tap is the confirmation) while
+**free-text is distilled and gated** by a Save/Edit/Skip card — honoring "confirm per answer" (D4) without
+double-tapping. Onboarding answers also feed the notify classifier so threshold/VIPs bite the same day.
