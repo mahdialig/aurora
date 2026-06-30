@@ -5,7 +5,7 @@
 > folder, then give a 4–6 line recap and ask what to work on. Keep this file current
 > at the end of each working session.
 
-_Last updated: 2026-06-30 (end of session 9 — deployed to VPS)._
+_Last updated: 2026-06-30 (end of session 9 — VPS deploy + M4 verified live; next: Phase 2)._
 
 ## One-line status
 Aurora is a Telegram-based conversational AI assistant that reads, searches, replies to, and
@@ -59,10 +59,29 @@ Telegram; she uses tools (currently email) to act, and reports in her own words.
     `AURORA_WEEKLY_REVIEW_*`.
   - **Email auto-capture**: the notify classifier now also suggests a `commitment`; notifications get
     a one-tap "➕ Track this" button (deduped by `email:<account>:<id>`). See D14–D17.
-  - **127 tests pass; ruff clean.** Unit + import verified; not yet driven live through the bot.
+  - **129 tests pass; ruff clean.** **Verified live through the bot** (session 9): `/track` → `/agenda`
+    → `/brief` produced the fixed-section morning brief (greeted by name, item under "focus today");
+    empty `/brief` hit the quiet-day path.
 - **VPS deployment** ✅ (session 9): Aurora now runs 24/7 on the VPS under systemd; deploy via
-  `git push origin main` (self-hosted runner). See **D18**.
-- **Next:** the self-learning upgrade (onboarding `/onboard` + reflection job, D17); then calendar.
+  `git push origin main` (self-hosted runner). See **D18**. Gmail OAuth published to Production (token
+  no longer expires); Telegram token no longer logged. Both session-9 follow-ups closed.
+
+## Next up — Phase 2: make Aurora *learn* you (start here)
+The roadmap's next milestone (BACKLOG #1; design in **D17**). Goal: complete D3's "correct" half so
+Aurora discovers and adapts to the user's preferences instead of only ever *adding* to a flat memory.
+Scope (build incrementally, one slice per session):
+1. **Onboarding interview** — a `/onboard` flow asking the proven week-1 EA questions, writing answers
+   into the preference store. (Lowest-risk first slice; immediately useful.)
+2. **Three-layer memory** — split today's flat `data/memory/memory.md` into episodic log / distilled
+   semantic preferences (what `render_for_prompt` emits) / procedural playbooks. Touches
+   `aurora/memory/store.py` + prompt assembly in `aurora/surfaces/telegram.py` (`_respond`).
+3. **Write-gate + capture corrections** — the "Remember this" button is already the gate; also turn an
+   edited/cancelled draft or notification reaction into a one-line lesson (scope + provenance + dedup).
+4. **Nightly reflection job** — ride the Phase-1 scheduler (`aurora/schedule/`) to consolidate recent
+   episodic entries into cleaner rules and decay stale ones (user confirms). This is the long-promised
+   "Reflection job."
+Guardrails (D17): distilled lessons in the prompt (not transcripts), every durable memory
+human-confirmed + traceable, TTL/decay vs drift. After Phase 2: **Calendar (Google)**, then notes/finance.
 
 ## Live runtime (current)
 - The bot runs **on the VPS** (`prod`, `103.150.194.135`, Ubuntu 24.04) under **systemd**:
@@ -89,9 +108,11 @@ Telegram; she uses tools (currently email) to act, and reports in her own words.
 1. Read this file + `WORKLOG.md` + `DECISIONS.md` + `BACKLOG.md`.
 2. Verify health: `cd` to repo, run `./.venv/Scripts/python.exe -m pytest -q` (expect all green)
    and `./.venv/Scripts/ruff.exe check aurora tests`.
-3. If you need the bot live: start it (see `../CLAUDE.md` Commands). `.env`, `credentials.json`,
-   `data/token.json` already exist locally (all gitignored) — don't recreate them.
-4. Pick the top BACKLOG item (or whatever the user asks) and go.
+3. Develop locally and **deploy by `git push origin main`** (self-hosted runner pulls + tests +
+   restarts). Do **NOT** start the bot on the laptop while the VPS bot is up — only one Telegram
+   poller may run at once. `.env`, `credentials.json`, `data/token.json` exist locally (gitignored) —
+   don't recreate them. To watch prod: `ssh prod`, `journalctl -u aurora-bot -f`.
+4. Pick the top BACKLOG item — currently **Phase 2** (see "Next up" above) — or whatever the user asks.
 
 ## Key facts a new session must not re-derive
 - Accounts: personal = Gmail (API/OAuth); work = `mahdi.ali@matajari.co.id` on dapurhosting →

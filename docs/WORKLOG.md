@@ -152,4 +152,8 @@ Append a dated entry at the end of every working session.
   (2) Gmail token expiry — published the OAuth app to **Production** via the Chrome extension, re-authed
   magyp.magyp@gmail.com (fresh non-expiring token, verified working, deployed to VPS), and hardened the
   code (expired refresh → GmailAuthError, skip + Telegram alert, no crash-loop). 129 tests pass.
-- Still to do live by the user: message the bot on Telegram and try `/brief` `/agenda` `/track` `/done`.
+- **M4 verified live through the bot**: `/track` (captured `c1`) → `/agenda` (listed it) → `/brief`
+  (fixed-section morning brief, greeted "Aji", item under "Your focus today" with the due date); empty
+  `/brief` hit the quiet-day path. The don't-miss-a-thing engine works end-to-end in production.
+- **State updated for Phase 2** (self-learning / `/onboard` + reflection) — to be started in a fresh
+  session; see STATE.md "Next up" and DECISIONS D17.
