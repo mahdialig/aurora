@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from datetime import datetime
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction
@@ -33,6 +34,7 @@ from aurora.memory import MemoryStore
 from aurora.notify.job import start_notifier, stop_notifier
 from aurora.profile import QUESTIONS, ProfileStore, distill
 from aurora.schedule import start_scheduler, stop_scheduler
+from aurora.schedule.runner import resolve_tz
 from aurora.sources.base import Reply
 from aurora.sources.registry import MailAccounts, build_mail_accounts
 from aurora.tools.email_tools import build_email_tools
@@ -539,6 +541,21 @@ def _email_capability(accounts: MailAccounts) -> str:
     )
 
 
+def _time_note(now: datetime) -> str:
+    """Tell the agent the current date/time so she can answer 'what time is it?' and
+    reason correctly about relative dates (today, tomorrow, this week) and due dates."""
+    # Build the day-of-month without a platform-specific strftime flag (%-d is glibc-only,
+    # %#d is Windows-only) so the string is identical on the laptop and the Linux VPS.
+    stamp = f"{now.strftime('%A')}, {now.day} {now.strftime('%B %Y, %H:%M')}"
+    return (
+        "\n\nCURRENT DATE & TIME: "
+        + stamp
+        + f" ({now.tzname()}). This is the real current time — use it whenever the user asks "
+        "the time or date, and for ALL relative-date reasoning (today, tomorrow, this week) and "
+        "due dates. Don't guess the date from anything else."
+    )
+
+
 def _recent_notifications_note(context: ContextTypes.DEFAULT_TYPE) -> str:
     """Tell the agent which emails Aurora just pinged about, so reactions resolve."""
     recents = context.application.bot_data.get("recent_notifications") or []
@@ -568,8 +585,10 @@ async def _respond(update: Update, context: ContextTypes.DEFAULT_TYPE, user_text
     history: list[Message] = context.chat_data.setdefault("history", [])
     history.append(Message("user", user_text))
 
+    tz = context.application.bot_data["tz"]
     system_prompt = (
         SYSTEM_PROMPT
+        + _time_note(datetime.now(tz))
         + _email_capability(accounts)
         + _recent_notifications_note(context)
         + profile.render_for_prompt()
@@ -883,6 +902,7 @@ def build_application(config: Config, llm: LLMClient, memory: MemoryStore | None
     activity = ActivityLog(config.data_dir)
 
     app.bot_data["config"] = config
+    app.bot_data["tz"] = resolve_tz(config.timezone)
     app.bot_data["llm"] = llm
     app.bot_data["memory"] = mem
     app.bot_data["profile"] = profile
