@@ -237,8 +237,21 @@ def test_hand_edited_checklist_loads(tmp_path):
     assert [s.done for s in c.steps] == [True, False]
 
 
-def test_step_helper_drops_blanks_and_accepts_step_objects():
+def test_step_helper_drops_blanks_and_collapses_single():
     from aurora.ledger.store import _as_steps
     assert _as_steps(["A", "  ", "B"]) == (Step("A"), Step("B"))
-    assert _as_steps([Step("X", done=True)]) == (Step("X", True),)
     assert _as_steps(None) == ()
+    # A checklist needs ≥2 items — 0 or 1 collapses to a flat task.
+    assert _as_steps([Step("X", done=True)]) == ()
+    assert _as_steps(["only one"]) == ()
+    assert _as_steps(["one", "  "]) == ()  # blanks dropped first, then collapsed
+
+
+def test_single_step_add_is_flat(tmp_path):
+    led = LedgerStore(tmp_path)
+    c = led.add("Remind Pak Indra about the NDA expiry", steps=["Remind Pak Indra about the NDA expiry"])
+    assert c.steps == ()  # no redundant one-item checklist
+    assert c.progress is None
+    # Two distinct steps are kept.
+    d = led.add("Reply re: tender", steps=["Send the reply", "Prepare File A"])
+    assert len(d.steps) == 2

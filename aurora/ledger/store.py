@@ -69,7 +69,10 @@ class Step:
 
 
 def _as_steps(steps: list[str] | list[Step] | None) -> tuple[Step, ...]:
-    """Coerce a list of step texts (or ``Step``s) into a steps tuple, dropping blanks."""
+    """Coerce a list of step texts (or ``Step``s) into a steps tuple, dropping blanks.
+
+    A checklist needs at least two distinct items to be meaningful — a single step
+    just restates the parent — so 0 or 1 step collapses to a flat task (``()``)."""
     if not steps:
         return ()
     out: list[Step] = []
@@ -79,7 +82,7 @@ def _as_steps(steps: list[str] | list[Step] | None) -> tuple[Step, ...]:
                 out.append(s)
         elif str(s).strip():
             out.append(Step(text=str(s).strip()))
-    return tuple(out)
+    return tuple(out) if len(out) >= 2 else ()
 
 
 @dataclass(frozen=True)

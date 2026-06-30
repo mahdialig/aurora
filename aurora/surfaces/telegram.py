@@ -759,6 +759,11 @@ def _proposal_text(payload: dict) -> str:
 
 async def _present_proposal(context: ContextTypes.DEFAULT_TYPE, chat_id: int, payload: dict) -> None:
     """Show the capture proposal card (Track / Adjust / Not now)."""
+    # A checklist needs ≥2 distinct steps; a lone step just restates the title, so
+    # collapse it to a flat task (no redundant duplicate in the card or /agenda).
+    steps = payload.get("steps") or []
+    if len(steps) < 2:
+        payload = {**payload, "steps": []}
     token = _stash(context, "pending_proposals", payload)
     keyboard = InlineKeyboardMarkup(
         [

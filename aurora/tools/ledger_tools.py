@@ -78,9 +78,10 @@ def build_ledger_tools(ledger: LedgerStore) -> list[ToolSpec]:
                         "confirm (you do NOT track silently). Break the task into its "
                         "definition-of-done steps: read the actual content (e.g. the email) and "
                         "derive the candidate sub-tasks it implies (each file/action requested = a "
-                        "step). The user owns the granularity and can adjust or collapse them. If "
-                        "the task is genuinely a single action, pass one step (or none). Do NOT "
-                        "call this for items already tracked."
+                        "step). The user owns the granularity and can adjust or collapse them. Only "
+                        "break a task into steps when it has TWO OR MORE genuinely distinct "
+                        "sub-tasks; for a single atomic action pass NO steps (an empty list) — never "
+                        "one step that just restates the title. Do NOT call this for items already tracked."
                     ),
                     "parameters": {
                         "type": "object",
