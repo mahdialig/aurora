@@ -21,8 +21,11 @@ Prioritized. Move items to WORKLOG when done. Keep "Next up" honest.
   a self-hosted Actions runner (`git push origin main`). See **D18** + STATE "Live runtime".
 
 ## M4 follow-ups (don't-miss-a-thing engine — landed; polish later)
-- **Proactive chasing**: have the notifier/scheduler nudge on ledger items as due dates approach and
-  on stale `waiting`-on-others items ("you haven't heard back from X") — the ledger now exists for it.
+- ~~**Proactive chasing**~~ ✅ (session 10): `aurora/remind/` rides the scheduler — dated items get
+  deadline reminders (overdue/today/tomorrow, daily until done), undated items get rate-limited progress /
+  "still waiting on X?" check-ins, each with a ✅ Done button. Fires 09:00 Jakarta (`AURORA_REMINDER_*`).
+  *Polish later: snooze button; per-item due-soon thresholds; fold into the brief vs. separate message;
+  catch items added mid-day (currently a once-daily pass, not the 10-min notifier loop).*
 - **Brief tuning**: per-user brief time learned from when they read it; `/brief weekly` on demand;
   let the brief link back to the source email for each item.
 - **Notification polish** (carried over): `/mute` `/notify` quick commands; per-account toggles;

@@ -141,3 +141,18 @@ back through its `set()` (upsert = dedup + provenance for free). Interview UX (u
 at a time, preset buttons + free-text; a **preset tap saves directly** (the tap is the confirmation) while
 **free-text is distilled and gated** by a Save/Edit/Skip card — honoring "confirm per answer" (D4) without
 double-tapping. Onboarding answers also feed the notify classifier so threshold/VIPs bite the same day.
+
+### D19 — A clock in the prompt + proactive reminders ride the scheduler
+Two gaps surfaced by the user (session 10): Aurora was **time-blind in chat** (the conversational prompt
+never carried the date/time, only the brief knew it) and she **only ever responded** — no targeted
+reminders or progress check-ins. Fixes, both small and on existing machinery:
+- **Clock**: inject the real current date/time (in `AURORA_TIMEZONE`, resolved once into `bot_data["tz"]`)
+  into every chat turn's system prompt. Cheap, and it also makes due-date/"tomorrow" reasoning correct.
+- **Reminders + check-ins** (`aurora/remind/`): a third scheduled job (`REMINDER_JOB`, 09:00 default) over
+  the commitments ledger. Design split: **dated** items → deadline reminders that **repeat daily until
+  done** (that's the job of a reminder); **undated** items → **check-ins that are rate-limited** per item
+  (`RemindState`, re-ask only after `reminder_stale_days`) so Aurora nudges without nagging — "still waiting
+  on X?" for `owner=other`, "how's this going?" for `owner=me`. Capped per pass with an overflow line; each
+  nudge has a ✅ Done button (`rdone:` → `mark_done`). Chose a once-daily scheduled pass (simple, matches a
+  daily agenda cadence) over riding the 10-min notifier loop; revisit if mid-day items need faster pickup.
+  This is the same 4-touch scheduler recipe slice-4's reflection job will reuse.

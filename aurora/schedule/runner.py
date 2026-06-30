@@ -24,6 +24,7 @@ _TICK_SECONDS = 60
 
 DAILY_JOB = "daily_brief"
 WEEKLY_JOB = "weekly_review"
+REMINDER_JOB = "reminders"
 
 
 def resolve_tz(name: str):
@@ -46,6 +47,8 @@ def pending_jobs(
     weekly_enabled: bool,
     weekly_day: int,
     weekly_time: str,
+    reminder_enabled: bool = False,
+    reminder_time: str = "09:00",
 ) -> list[str]:
     """Pure: which jobs are due right now. Does not mutate state."""
     due: list[str] = []
@@ -53,6 +56,8 @@ def pending_jobs(
         due.append(DAILY_JOB)
     if weekly_enabled and weekly_due(now_local, weekly_day, weekly_time, state.last_fired(WEEKLY_JOB)):
         due.append(WEEKLY_JOB)
+    if reminder_enabled and daily_due(now_local, reminder_time, state.last_fired(REMINDER_JOB)):
+        due.append(REMINDER_JOB)
     return due
 
 
@@ -66,7 +71,24 @@ def start_scheduler(application) -> None:
 
     async def fire(job: str) -> None:
         # Imported here to avoid a heavy import at module load and to keep the
-        # scheduler decoupled from how briefs are composed.
+        # scheduler decoupled from how each job is composed.
+        if job == REMINDER_JOB:
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+            from aurora.remind.nudge import run_reminders
+
+            nudges, overflow = await asyncio.to_thread(run_reminders, application)
+            for n in nudges:
+                keyboard = InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("✅ Done", callback_data=f"rdone:{n.commitment_id}")]]
+                )
+                await application.bot.send_message(chat_id=uid, text=n.text, reply_markup=keyboard)
+            if overflow > 0:
+                await application.bot.send_message(
+                    chat_id=uid, text=f"…and {overflow} more open item(s) — see /agenda."
+                )
+            return
+
         from aurora.brief.compose import build_brief
 
         text = await asyncio.to_thread(build_brief, application, weekly=(job == WEEKLY_JOB))
@@ -75,9 +97,10 @@ def start_scheduler(application) -> None:
 
     async def loop() -> None:
         logger.info(
-            "Scheduler started (tz=%s, brief=%s@%s, weekly=%s day%s@%s).",
+            "Scheduler started (tz=%s, brief=%s@%s, weekly=%s day%s@%s, reminders=%s@%s).",
             config.timezone, config.brief_enabled, config.brief_time,
             config.weekly_review_enabled, config.weekly_review_day, config.weekly_review_time,
+            config.reminder_enabled, config.reminder_time,
         )
         while True:
             try:
@@ -89,6 +112,8 @@ def start_scheduler(application) -> None:
                     weekly_enabled=config.weekly_review_enabled,
                     weekly_day=config.weekly_review_day,
                     weekly_time=config.weekly_review_time,
+                    reminder_enabled=config.reminder_enabled,
+                    reminder_time=config.reminder_time,
                 )
                 for job in due:
                     await fire(job)

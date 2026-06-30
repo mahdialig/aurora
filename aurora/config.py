@@ -67,6 +67,10 @@ class Config:
     weekly_review_day: int
     weekly_review_time: str
     weekly_horizon_days: int
+    # Proactive reminders + progress check-ins (rides the same scheduler).
+    reminder_enabled: bool
+    reminder_time: str
+    reminder_stale_days: int
 
     @classmethod
     def load(cls, *, require_telegram: bool = True) -> "Config":
@@ -132,6 +136,11 @@ class Config:
         if not 0 <= weekly_review_day <= 6:
             raise ConfigError("AURORA_WEEKLY_REVIEW_DAY must be 0 (Mon) through 6 (Sun).")
 
+        # Proactive reminders / check-ins (M4 follow-up). On by default; a midday pass.
+        reminder_enabled = _bool_env("AURORA_REMINDER_ENABLED", True)
+        reminder_time = os.environ.get("AURORA_REMINDER_TIME", "09:00").strip() or "09:00"
+        reminder_stale_days = _int_env("AURORA_REMINDER_STALE_DAYS", 3)
+
         DATA_DIR.mkdir(parents=True, exist_ok=True)
 
         return cls(
@@ -160,6 +169,9 @@ class Config:
             weekly_review_day=weekly_review_day,
             weekly_review_time=weekly_review_time,
             weekly_horizon_days=weekly_horizon_days,
+            reminder_enabled=reminder_enabled,
+            reminder_time=reminder_time,
+            reminder_stale_days=reminder_stale_days,
         )
 
 

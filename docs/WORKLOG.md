@@ -193,3 +193,19 @@ Append a dated entry at the end of every working session.
 - **NOT yet live-verified through the running bot** (deploy is `git push origin main` → self-hosted runner;
   laptop poller stays off). Next: deploy + walk `/onboard` end-to-end, confirm a draft reflects the chosen
   tone/signature, and that `/profile forget` reverts. Then slice 2 (three-layer memory) builds on this store.
+- **Follow-ups same session (deployed):**
+  - **`/help`** command listing all commands, grouped (`/start` points at it).
+  - **A clock**: `_time_note(now)` injects the current date/time (configured tz, resolved once into
+    `bot_data["tz"]`) into `_respond`'s prompt. Aurora was time-blind in chat; now she can answer
+    "what time is it?" and reason correctly about today/tomorrow/due dates. Portable day-of-month (no
+    `%-d`/`%#d`). Was prompted by the user noticing she couldn't tell the time.
+  - **Proactive reminders + progress check-ins** (new `aurora/remind/`, realizes the M4 "proactive chasing"
+    follow-up): rides the existing scheduler with a new `REMINDER_JOB` at `AURORA_REMINDER_TIME` (09:00
+    default). `plan_nudges` (pure) — **dated** items get deadline reminders (overdue / due-today /
+    due-tomorrow, repeating daily until done); **undated** items get **check-ins** once stale (no update for
+    `reminder_stale_days`, default 3): "still waiting to hear back?" (owner=other) / "how's this going?"
+    (owner=me). Check-ins are rate-limited per item via `RemindState` (`data/remind_state.json`) so she
+    nudges, not nags; capped at 6/pass with an "…and N more" overflow line. Each nudge carries a "✅ Done"
+    button (`rdone:<id>` → `ledger.mark_done`). Config knobs `AURORA_REMINDER_{ENABLED,TIME,STALE_DAYS}`;
+    scheduler start-gate widened. Tests: `test_remind.py` (planner cases + state). 165 tests pass, ruff clean.
+    **Not yet seen fire live** (next scheduled 09:00 Jakarta; can force-test by setting a due item + waiting).

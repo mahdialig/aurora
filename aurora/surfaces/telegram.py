@@ -844,6 +844,21 @@ async def on_track_button(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.edit_message_text(base + "\n\n— okay, not tracking that.")
 
 
+@_allowed_only
+async def on_reminder_done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Tap '✅ Done' under a proactive reminder / check-in — mark the commitment done."""
+    query = update.callback_query
+    await query.answer()
+    _action, _, cid = (query.data or "").partition(":")
+    ledger: LedgerStore = context.application.bot_data["ledger"]
+    base = query.message.text or ""
+    done = ledger.mark_done(cid)
+    if done is None:
+        await query.edit_message_text(base + "\n\n(couldn't find that one — maybe already cleared)")
+    else:
+        await query.edit_message_text(base + "\n\n✅ Marked done.")
+
+
 # --------------------------------------------------------------------------- #
 # Wiring
 # --------------------------------------------------------------------------- #
@@ -855,10 +870,10 @@ async def _on_startup(app: Application) -> None:
         start_notifier(app)
     else:
         logger.info("Notifier disabled (notify_enabled=%s).", config.notify_enabled)
-    if config.brief_enabled or config.weekly_review_enabled:
+    if config.brief_enabled or config.weekly_review_enabled or config.reminder_enabled:
         start_scheduler(app)
     else:
-        logger.info("Scheduler disabled (brief + weekly review both off).")
+        logger.info("Scheduler disabled (brief + weekly review + reminders all off).")
 
     # If Gmail was set up (creds + token present) but didn't connect, the token has
     # almost certainly expired. Tell the user out loud instead of failing silently.
@@ -930,6 +945,7 @@ def build_application(config: Config, llm: LLMClient, memory: MemoryStore | None
     app.add_handler(CallbackQueryHandler(on_onboard_button, pattern=r"^onb:"))
     app.add_handler(CallbackQueryHandler(on_memory_button, pattern=r"^(remember|dismiss):"))
     app.add_handler(CallbackQueryHandler(on_track_button, pattern=r"^(track|untrack):"))
+    app.add_handler(CallbackQueryHandler(on_reminder_done, pattern=r"^rdone:"))
     app.add_handler(CallbackQueryHandler(on_reply_action, pattern=r"^(send|savedraft|cancelreply):"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
     return app

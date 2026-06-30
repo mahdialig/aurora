@@ -5,7 +5,7 @@
 > folder, then give a 4–6 line recap and ask what to work on. Keep this file current
 > at the end of each working session.
 
-_Last updated: 2026-06-30 (end of session 10 — Phase 2 slice 1 built: /onboard + profile store; next: live-verify, then slice 2)._
+_Last updated: 2026-06-30 (session 10 — Phase 2 slice 1 (/onboard) + a clock + proactive reminders/check-ins; next: live-verify, then slice 2)._
 
 ## One-line status
 Aurora is a Telegram-based conversational AI assistant that reads, searches, replies to, and
@@ -100,8 +100,11 @@ human-confirmed + traceable, TTL/decay vs drift. After Phase 2: **Calendar (Goog
   (private; VPS clones via a read-only deploy key). See **D18**.
 - Telegram bot: **@paagentaurorabot**, locked to the user's Telegram id `6959305748`.
 - Model: `deepseek-v4-flash`. Autonomy mode: `approve_all` (sending always needs a tap).
-- Proactive notifications: ON, every 600s. Daily brief 07:00 / weekly review Mon 07:30 (Asia/Jakarta).
-  State persists in `data/notify_state.json`, `data/schedule_state.json`. Now truly 24/7.
+- Proactive notifications: ON, every 600s. Daily brief 07:00 / weekly review Mon 07:30 / **reminders +
+  check-ins 09:00** (Asia/Jakarta). State persists in `data/notify_state.json`, `data/schedule_state.json`,
+  `data/remind_state.json`. Now truly 24/7.
+- Aurora now **knows the current date/time** (injected into her chat prompt in the configured tz), so
+  "what time is it?" works and her relative-date / due-date reasoning is correct.
 - Connected mailboxes:
   - **personal Gmail** `magyp.magyp@gmail.com` (OAuth, scope `gmail.modify`). Google Cloud
     project: `aurora-500907`, OAuth app **published to Production** (session 9) → refresh token no
