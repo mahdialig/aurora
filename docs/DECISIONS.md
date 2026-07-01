@@ -243,3 +243,26 @@ exactly like `reply_to_email`; the "Adjust" loop mirrors the `/onboard` state ma
 (addressed by index/text) so the file stays clean and hand-editable. A latent bug surfaced and was fixed:
 a timed `due` broke `==`/`due_on_or_before` string comparisons → all date comparisons now use the date prefix
 (`_due_date`). 182 tests, ruff clean. Not yet live-verified through the bot at time of writing.
+
+### D22 — Three-layer memory: procedural playbooks first (Phase 2 slice 2)
+D17's plan is a three-layer memory: **episodic** (a log of what happened), **semantic** (distilled standing
+preferences — already realized as `ProfileStore`, D17 slice 1), and **procedural** (reusable how-to). Rather
+than build all three + migrate the flat `MemoryStore` in one slice, we sequence by leverage (user's call,
+session 12): **procedural playbooks first (slice 2a)**; episodic is deferred to a **slice 2b** that pairs
+naturally with the reflection job (slice 4), where it actually earns its keep — on its own it changes little
+day-to-day. `MemoryStore` (facts + notification rules) and `ProfileStore` (preferences) are left as-is.
+
+**A playbook** = a named, reusable **definition of done** for a recurring workflow: ordered step templates +
+trigger keywords + a note on what counts as truly done. It's the *knowledge that fills* a slice-α checklist
+correctly next time — closing the loop D20/D21 opened (for withholding tax: sending the bukti potong is step 1;
+**paying DJP** is the real done). `PlaybookStore` (`aurora/playbook/`, `data/playbook/playbooks.md`) mirrors
+`ProfileStore`/the ledger: hand-editable `##` blocks, **keyed upsert-by-name** (corrections update in place,
+forgetting reverts — D8), atomic + locked writes.
+
+**Integration = prompt injection, not new control flow.** `render_for_prompt()` lists the playbooks each turn,
+so when the user asks to track a matching task, the LLM already fills `propose_commitment`'s steps from the
+template (the D6 "add context, not UI" spine — no change to the capture tool). **Creation = both** (user's
+call): **teach-by-confirm** via a `propose_playbook` **action tool** (short-circuits to a `✅ Save playbook /
+✖ Not now` card, prefix `pb:` — never saves silently, D3) *and* a `/playbook` command (list + `forget <name>`)
+plus hand-editing the file. The withholding-tax playbook is the seed example. **Relationship to slice α:** steps
+are the *container* (slice α); playbooks are the *content* (this slice). 203 tests, ruff clean.

@@ -19,8 +19,12 @@ Prioritized. Move items to WORKLOG when done. Keep "Next up" honest.
      hand-editable `ProfileStore` (`data/profile/profile.md`), rendered into the chat prompt + notify
      classifier. ✅ **Live-verified (session 12)**; fixed a stale-card key-map bug (buttons now carry the
      question index — `f20ec5b`). *Open: confirm stale-tap vs skip-then-answer trigger.*
-   - **Slice 2 — three-layer memory**: `ProfileStore` becomes the semantic layer; add episodic log +
-     procedural playbooks.
+   - **Slice 2a — procedural playbooks** ✅ (session 12, built — design **D22**): `PlaybookStore`
+     (`aurora/playbook/`, `data/playbook/playbooks.md`) = reusable step templates for recurring workflows;
+     `propose_playbook` action tool (teach-by-confirm) + `/playbook` command; injected into the turn prompt so
+     capture pulls a matching playbook's steps (closes D20/D21). *Still to do: deploy; seed the withholding-tax
+     playbook on the VPS; live-verify teach-by-confirm + a matching capture.*
+   - **Slice 2b — episodic log**: deferred to pair with the reflection job (slice 4), where it earns its keep.
    - **Slice 3 — write-gate + capture corrections**: turn edited/cancelled drafts + notification reactions
      into one-line, scoped, deduped, provenance-carrying lessons (reuse slice 1's confirm gate + upsert).
    - **Slice 4 — nightly reflection job**: ride `aurora/schedule/` to consolidate episodic entries + decay

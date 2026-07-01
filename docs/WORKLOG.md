@@ -300,4 +300,21 @@ Append a dated entry at the end of every working session.
   - **Open**: not confirmed whether the actual trigger was a stale tap vs. a **skip-then-answer** (user
     skipping the sign-off question, then typing the sign-off on the next one). If the latter, add a second
     guard that warns when a distilled answer looks like it belongs to a different field. Awaiting user recall.
-- **Next**: Phase 2 slice 2 — three-layer memory (episodic / semantic = `ProfileStore` / procedural playbooks).
+- **Then built Phase 2 slice 2a — procedural playbooks** (design = **D22**). User's calls: **playbooks
+  first** (defer episodic to a slice 2b that pairs with the reflection job); creation **both ways**
+  (teach-by-confirm + `/playbook` command); seed the withholding-tax playbook.
+  - **`aurora/playbook/`** (`store.py` + `__init__.py`): `PlaybookStore`/`Playbook` over
+    `data/playbook/playbooks.md` — hand-editable `##` blocks (trigger keywords + ordered steps + notes),
+    keyed **upsert-by-name**, atomic + locked writes, `match(text)`, `render_for_prompt()`. Mirrors
+    `ProfileStore`.
+  - **`aurora/tools/playbook_tools.py`**: `propose_playbook` **action tool** (teach-by-confirm — no handler,
+    short-circuits `run_agent` to a Save/Not-now card; never saves silently, D3).
+  - **`surfaces/telegram.py`**: registered `PlaybookStore` + tool; injected `render_for_prompt()` into the
+    turn prompt (so Aurora proposes a matching playbook's steps when capturing via `propose_commitment` — no
+    change to the capture tool); `_present_playbook` card + `on_playbook_button` (`pb:save|cancel`);
+    `/playbook` command (list + `forget <name>`); `/help` entry.
+  - **Tests**: `test_playbook_store.py` (10) — roundtrip, upsert-by-name, remove-reverts, match by
+    trigger/name, render (empty + populated), hand-edited tolerance, empty-steps rejected. **203 pass, ruff
+    clean** (`0fc54bd`). Not yet deployed / live-verified; withholding-tax seed still to be created on the VPS.
+- **Next**: deploy slice 2a; seed the withholding-tax playbook; live-verify teach-by-confirm + a matching
+  capture pulling playbook steps. Then slice 3 (capture corrections) or slice 2b (episodic).

@@ -5,7 +5,7 @@
 > folder, then give a 4–6 line recap and ask what to work on. Keep this file current
 > at the end of each working session.
 
-_Last updated: 2026-07-01 (session 12 — live-verified slice α **tick-off card + last-step auto-complete** through the bot (both ✅), and `/onboard` end-to-end. Found + fixed an onboarding bug: buttons carried no question index, so a stale-card tap mis-filed the sign-off answer under `handle_vs_check` — data fixed live + code hardened (`_parse_onb_action` + stale-tap guard, `f20ec5b`, deployed). 193 tests, ruff clean. Still to walk live: mark_done guard + 09:00 reminder step-chase (need a fresh stepped item). **Next: Phase 2 slice 2 — three-layer memory.**)_
+_Last updated: 2026-07-01 (session 12 — live-verified slice α **tick-off card + last-step auto-complete** through the bot (both ✅), and `/onboard` end-to-end. Found + fixed an onboarding bug: buttons carried no question index, so a stale-card tap mis-filed the sign-off answer under `handle_vs_check` — data fixed live + code hardened (`_parse_onb_action` + stale-tap guard, `f20ec5b`, deployed). 193 tests, ruff clean. Still to walk live: mark_done guard + 09:00 reminder step-chase (need a fresh stepped item). Then **built Phase 2 slice 2a — procedural playbooks** (`PlaybookStore` + `propose_playbook` teach-by-confirm tool + `/playbook`; D22), 203 tests, ruff clean, committed `0fc54bd` — **not yet deployed** (seed the withholding-tax playbook + live-verify next).)_
 
 ## One-line status
 Aurora is a Telegram-based conversational AI assistant that reads, searches, replies to, and
@@ -105,10 +105,12 @@ Scope (build incrementally, one slice per session):
    under `handle_vs_check`; buttons now stamp their question index + the handler ignores stale taps (`f20ec5b`).
    *Open:* confirm whether the trigger was a stale tap or a skip-then-answer (if the latter, add a
    looks-like-wrong-field guard).
-2. **Three-layer memory** — `ProfileStore` *becomes* the semantic layer. Split today's flat
-   `data/memory/memory.md` into episodic log / distilled
-   semantic preferences (what `render_for_prompt` emits) / procedural playbooks. Touches
-   `aurora/memory/store.py` + prompt assembly in `aurora/surfaces/telegram.py` (`_respond`).
+2. **Three-layer memory** — sequenced by leverage (D22). **Slice 2a — procedural playbooks ✅ (session 12,
+   built; not yet deployed):** new `PlaybookStore` (`aurora/playbook/`, `data/playbook/playbooks.md`) =
+   reusable step templates for recurring workflows (the content that fills slice-α checklists correctly;
+   closes D20/D21). `propose_playbook` action tool (teach-by-confirm) + `/playbook` command; rendered into
+   the turn prompt so capture pulls a matching playbook's steps. **Slice 2b — episodic log** deferred to pair
+   with the reflection job (slice 4). `MemoryStore` + `ProfileStore` left as-is (no risky migration).
 3. **Write-gate + capture corrections** — the "Remember this" button is already the gate; also turn an
    edited/cancelled draft or notification reaction into a one-line lesson (scope + provenance + dedup).
 4. **Nightly reflection job** — ride the Phase-1 scheduler (`aurora/schedule/`) to consolidate recent
