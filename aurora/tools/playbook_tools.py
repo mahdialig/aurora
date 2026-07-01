@@ -27,14 +27,19 @@ def build_playbook_tools() -> list[ToolSpec]:
                 "function": {
                     "name": "propose_playbook",
                     "description": (
-                        "Offer to save a RECURRING workflow as a reusable playbook — a named "
-                        "set of definition-of-done steps you'll reuse whenever a similar task "
-                        "comes up. Use this when the user handles (or teaches you) a repeatable "
-                        "process, ESPECIALLY one whose real 'done' is non-obvious (e.g. a tax, "
-                        "filing, or multi-party process where a receipt is only step one). Shows "
-                        "the user a confirm card — you never save silently. Don't propose a "
-                        "playbook for a one-off task, or one that already exists in the PLAYBOOKS "
-                        "block (correct it with the same name instead)."
+                        "Save a RECURRING workflow as a reusable playbook — a named set of "
+                        "definition-of-done steps you'll reuse whenever a similar task comes up. "
+                        "ALWAYS use THIS tool (never propose_commitment) when the user says things "
+                        "like 'save this as a playbook', 'remember this workflow/process', or "
+                        "describes what they do 'whenever'/'every time'/'each time' some situation "
+                        "happens — that's a reusable template, NOT a single to-do. Also use it when "
+                        "you notice the user handle a repeatable process worth templating, "
+                        "ESPECIALLY one whose real 'done' is non-obvious (a tax, filing, or "
+                        "multi-party process where a receipt is only step one). Pass the workflow "
+                        "steps they described as `steps`. Shows the user a confirm card — you never "
+                        "save silently. (propose_commitment is only for tracking ONE specific "
+                        "current to-do, not a reusable workflow.) Don't re-propose a playbook that "
+                        "already exists in the PLAYBOOKS block — correct it with the same name."
                     ),
                     "parameters": {
                         "type": "object",

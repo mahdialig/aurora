@@ -225,10 +225,10 @@ class PlaybookStore:
         items = self.playbooks()
         if not items:
             return (
-                "\n\nPLAYBOOKS: You don't have any saved workflow playbooks yet. When you "
-                "notice the user handle a recurring, repeatable process (esp. one with a "
-                "non-obvious real 'done', like a tax or filing), offer to save it as a "
-                "playbook via propose_playbook so you get the steps right next time."
+                "\n\nPLAYBOOKS: You don't have any saved workflow playbooks yet. When the user "
+                "says 'save this as a playbook' or describes what they do 'whenever'/'every time' "
+                "something happens, call propose_playbook (NOT propose_commitment) to save that "
+                "reusable workflow so you get the steps right next time."
             )
         blocks = []
         for p in items:
@@ -243,7 +243,10 @@ class PlaybookStore:
         return (
             "\n\nPLAYBOOKS — step templates for recurring workflows. When a task the user "
             "asks you to track matches one of these, propose it (via propose_commitment) with "
-            "these steps as the definition of done, adapting the wording to the specifics:\n"
+            "these steps as the definition of done, adapting the wording to the specifics. When "
+            "the user instead says 'save this as a playbook' or describes what they do "
+            "'whenever'/'every time' X happens, call propose_playbook (NOT propose_commitment) to "
+            "save a new reusable workflow:\n"
             + "\n".join(blocks)
         )
 

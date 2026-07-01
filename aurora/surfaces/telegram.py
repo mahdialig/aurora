@@ -11,7 +11,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import subprocess
 from datetime import datetime
+from pathlib import Path
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction
@@ -24,6 +26,7 @@ from telegram.ext import (
     filters,
 )
 
+from aurora import __codename__, __release_note__, __version__
 from aurora.activity import ActivityLog
 from aurora.agent import run_agent
 from aurora.brief.compose import build_brief
@@ -144,7 +147,7 @@ HELP_TEXT = (
     "/playbook — my saved workflow playbooks · /playbook forget <name> — clear one\n"
     "\n*Housekeeping*\n"
     "/new — clear our recent chat (keeps what I've learned)\n"
-    "/whoami — your Telegram id · /help — this list"
+    "/whoami — your Telegram id · /version — which release I'm running · /help — this list"
 )
 
 
@@ -157,6 +160,39 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 @_allowed_only
 async def whoami(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.effective_message.reply_text(f"Your Telegram user id is {update.effective_user.id}.")
+
+
+def _git_sha() -> str:
+    """Best-effort short commit of the running code (empty if git isn't available)."""
+    try:
+        repo = Path(__file__).resolve().parent.parent.parent  # <repo>/aurora/surfaces/telegram.py
+        out = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=3,
+        )
+        return out.stdout.strip() if out.returncode == 0 else ""
+    except Exception:  # noqa: BLE001 - a version readout must never crash
+        return ""
+
+
+def _version_text(version: str, codename: str, note: str, sha: str) -> str:
+    line = f"🌅 Aurora v{version}"
+    if codename:
+        line += f" — “{codename}”"
+    parts = [line]
+    if note:
+        parts.append(note)
+    if sha:
+        parts.append(f"build: {sha}")
+    return "\n".join(parts)
+
+
+@_allowed_only
+async def version_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/version — which release + live commit is running."""
+    await update.effective_message.reply_text(
+        _version_text(__version__, __codename__, __release_note__, _git_sha())
+    )
 
 
 @_allowed_only
@@ -1375,6 +1411,7 @@ def build_application(config: Config, llm: LLMClient, memory: MemoryStore | None
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("whoami", whoami))
+    app.add_handler(CommandHandler("version", version_cmd))
     app.add_handler(CommandHandler("remember", remember))
     app.add_handler(CommandHandler("memory", memory_cmd))
     app.add_handler(CommandHandler("forget", forget))

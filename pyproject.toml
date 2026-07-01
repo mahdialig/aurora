@@ -1,6 +1,6 @@
 [project]
 name = "aurora"
-version = "0.0.1"
+version = "0.6.0"
 description = "A process-first personal assistant that learns your preferences over time."
 readme = "README.md"
 requires-python = ">=3.11"
