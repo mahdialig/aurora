@@ -33,6 +33,7 @@ from aurora.ledger.propose import revise_steps
 from aurora.llm import DeepSeekClient, LLMClient, Message
 from aurora.memory import MemoryStore
 from aurora.notify.job import start_notifier, stop_notifier
+from aurora.playbook import PlaybookStore
 from aurora.profile import QUESTIONS, ProfileStore, distill
 from aurora.schedule import start_scheduler, stop_scheduler
 from aurora.schedule.runner import resolve_tz
@@ -40,6 +41,7 @@ from aurora.sources.base import Reply
 from aurora.sources.registry import MailAccounts, build_mail_accounts
 from aurora.tools.email_tools import build_email_tools
 from aurora.tools.ledger_tools import build_ledger_tools
+from aurora.tools.playbook_tools import build_playbook_tools
 from aurora.tools.notify_tools import build_notify_tools
 
 logger = logging.getLogger("aurora.telegram")
@@ -139,6 +141,7 @@ HELP_TEXT = (
     "/track <thing> — track a commitment · /done <id> — mark it done\n"
     "\n*What I remember*\n"
     "/remember <text> — save a fact · /memory — list them · /forget <n|text> — drop one\n"
+    "/playbook — my saved workflow playbooks · /playbook forget <name> — clear one\n"
     "\n*Housekeeping*\n"
     "/new — clear our recent chat (keeps what I've learned)\n"
     "/whoami — your Telegram id · /help — this list"
@@ -482,6 +485,48 @@ async def profile_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     )
 
 
+def _playbook_listing(playbook: PlaybookStore) -> str:
+    lines = []
+    for p in playbook.playbooks():
+        t = len(p.steps)
+        lines.append(f"• {p.name} ({t} step{'s' if t != 1 else ''})")
+        lines.extend(f"   ☐ {s}" for s in p.steps)
+        if p.notes:
+            lines.append(f"   note: {p.notes}")
+    return "\n".join(lines)
+
+
+@_allowed_only
+async def playbook_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/playbook — show saved workflow playbooks; /playbook forget <name> drops one."""
+    playbook: PlaybookStore = context.application.bot_data["playbook"]
+    args = context.args or []
+    if args and args[0].lower() == "forget":
+        name = " ".join(args[1:]).strip()
+        if not name:
+            await update.effective_message.reply_text("Which one? e.g. /playbook forget withholding-tax")
+            return
+        removed = playbook.remove(name)
+        if removed is None:
+            await update.effective_message.reply_text(
+                f"No playbook named '{name}'. Check /playbook for the names."
+            )
+        else:
+            await update.effective_message.reply_text(f"Forgotten playbook: {removed.name}.")
+        return
+    if playbook.is_empty():
+        await update.effective_message.reply_text(
+            "No saved playbooks yet. When you walk me through a recurring workflow, I'll offer "
+            "to save it so I get the steps right next time."
+        )
+        return
+    await update.effective_message.reply_text(
+        "Your playbooks:\n"
+        + _playbook_listing(playbook)
+        + "\n\n(/playbook forget <name> to clear one; teach me new ones as they come up.)"
+    )
+
+
 @_allowed_only
 async def on_onboard_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Taps inside the onboarding interview (pick / save / edit / skip / stop / start menu)."""
@@ -644,6 +689,7 @@ async def _respond(update: Update, context: ContextTypes.DEFAULT_TYPE, user_text
     llm: LLMClient = context.application.bot_data["llm"]
     memory: MemoryStore = context.application.bot_data["memory"]
     profile: ProfileStore = context.application.bot_data["profile"]
+    playbook: PlaybookStore = context.application.bot_data["playbook"]
     ledger: LedgerStore = context.application.bot_data["ledger"]
     accounts: MailAccounts = context.application.bot_data["mail_accounts"]
     tools = context.application.bot_data["email_tools"]
@@ -660,6 +706,7 @@ async def _respond(update: Update, context: ContextTypes.DEFAULT_TYPE, user_text
         + profile.render_for_prompt()
         + memory.render_for_prompt()
         + ledger.render_for_prompt()
+        + playbook.render_for_prompt()
     )
     messages = [{"role": "system", "content": system_prompt}]
     messages += [m.as_dict() for m in history[-MAX_HISTORY_MESSAGES:]]
@@ -853,9 +900,36 @@ async def _present_tick(context: ContextTypes.DEFAULT_TYPE, chat_id: int, payloa
     await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=keyboard)
 
 
+def _playbook_text(payload: dict) -> str:
+    steps = payload.get("steps") or []
+    triggers = payload.get("triggers") or []
+    notes = (payload.get("notes") or "").strip()
+    lines = ["💡 Save this as a playbook so I get the steps right next time?", "", f"📒 {payload['name']}"]
+    lines += [f"☐ {s}" for s in steps]
+    if triggers:
+        lines.append("when: " + ", ".join(triggers))
+    if notes:
+        lines.append(f"note: {notes}")
+    return "\n".join(lines)
+
+
+async def _present_playbook(context: ContextTypes.DEFAULT_TYPE, chat_id: int, payload: dict) -> None:
+    """Show the teach-a-playbook confirm card (Save playbook / Not now)."""
+    token = _stash(context, "pending_playbooks", payload)
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("✅ Save playbook", callback_data=f"pb:save:{token}"),
+                InlineKeyboardButton("✖ Not now", callback_data=f"pb:cancel:{token}"),
+            ]
+        ]
+    )
+    await context.bot.send_message(chat_id=chat_id, text=_playbook_text(payload), reply_markup=keyboard)
+
+
 async def _propose_action(update, context, result, history: list[Message]) -> None:
     """Turn an agent action (reply_to_email / resend_last_draft / propose_commitment /
-    suggest_step_done) into an approval or confirmation prompt."""
+    suggest_step_done / propose_playbook) into an approval or confirmation prompt."""
     accounts: MailAccounts = context.application.bot_data["mail_accounts"]
     args = result.action_args or {}
     chat_id = update.effective_chat.id
@@ -891,6 +965,24 @@ async def _propose_action(update, context, result, history: list[Message]) -> No
             )
             return
         await _present_tick(context, chat_id, {"cid": cid, "step": step, "note": note})
+        return
+
+    # Teach a playbook: Aurora offers to save a recurring workflow (never silent).
+    if result.action_name == "propose_playbook":
+        name = (args.get("name") or "").strip()
+        steps = [str(s).strip() for s in (args.get("steps") or []) if str(s).strip()]
+        if not name or not steps:
+            await update.effective_message.reply_text(
+                "I couldn't shape that into a playbook — try again?"
+            )
+            return
+        payload = {
+            "name": name,
+            "steps": steps,
+            "triggers": [str(t).strip() for t in (args.get("triggers") or []) if str(t).strip()],
+            "notes": (args.get("notes") or "").strip(),
+        }
+        await _present_playbook(context, chat_id, payload)
         return
 
     if result.action_name == "resend_last_draft":
@@ -1173,6 +1265,39 @@ async def on_tick_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.edit_message_text(base + f"\n\n✅ Ticked off. Progress: {d}/{t}.")
 
 
+@_allowed_only
+async def on_playbook_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Tap on the teach-a-playbook card: ✅ Save playbook / ✖ Not now."""
+    query = update.callback_query
+    await query.answer()
+    _, _, rest = (query.data or "").partition(":")
+    action, _, token = rest.partition(":")
+    pending: dict[str, dict] = context.application.bot_data.setdefault("pending_playbooks", {})
+    payload = pending.pop(token, None)
+    base = query.message.text or ""
+
+    if payload is None:
+        await query.edit_message_text(base + "\n\n(that suggestion has expired — just ask me again)")
+        return
+
+    if action == "cancel":
+        await query.edit_message_text(base + "\n\n— okay, I won't save it.")
+        return
+
+    playbook: PlaybookStore = context.application.bot_data["playbook"]
+    try:
+        p = playbook.set(
+            payload["name"],
+            steps=payload.get("steps") or [],
+            triggers=payload.get("triggers") or [],
+            notes=payload.get("notes", ""),
+        )
+    except ValueError:
+        await query.edit_message_text(base + "\n\n(I couldn't save that playbook — it needs a name and steps.)")
+        return
+    await query.edit_message_text(base + f"\n\n📒 Saved playbook: {p.name}. I'll use it next time.")
+
+
 # --------------------------------------------------------------------------- #
 # Wiring
 # --------------------------------------------------------------------------- #
@@ -1226,6 +1351,7 @@ def build_application(config: Config, llm: LLMClient, memory: MemoryStore | None
     )
     mem = memory or MemoryStore(config.data_dir)
     profile = ProfileStore(config.data_dir)
+    playbook = PlaybookStore(config.data_dir)
     accounts = build_mail_accounts(config)
     ledger = LedgerStore(config.data_dir)
     activity = ActivityLog(config.data_dir)
@@ -1235,11 +1361,15 @@ def build_application(config: Config, llm: LLMClient, memory: MemoryStore | None
     app.bot_data["llm"] = llm
     app.bot_data["memory"] = mem
     app.bot_data["profile"] = profile
+    app.bot_data["playbook"] = playbook
     app.bot_data["mail_accounts"] = accounts
     app.bot_data["ledger"] = ledger
     app.bot_data["activity"] = activity
     app.bot_data["email_tools"] = (
-        build_email_tools(accounts) + build_notify_tools(mem) + build_ledger_tools(ledger)
+        build_email_tools(accounts)
+        + build_notify_tools(mem)
+        + build_ledger_tools(ledger)
+        + build_playbook_tools()
     )
 
     app.add_handler(CommandHandler("start", start))
@@ -1256,6 +1386,7 @@ def build_application(config: Config, llm: LLMClient, memory: MemoryStore | None
     app.add_handler(CommandHandler("done", done_cmd))
     app.add_handler(CommandHandler("onboard", onboard_cmd))
     app.add_handler(CommandHandler("profile", profile_cmd))
+    app.add_handler(CommandHandler("playbook", playbook_cmd))
     app.add_handler(CallbackQueryHandler(on_onboard_button, pattern=r"^onb:"))
     app.add_handler(CallbackQueryHandler(on_memory_button, pattern=r"^(remember|dismiss):"))
     app.add_handler(CallbackQueryHandler(on_track_button, pattern=r"^(track|untrack):"))
@@ -1263,6 +1394,7 @@ def build_application(config: Config, llm: LLMClient, memory: MemoryStore | None
     app.add_handler(CallbackQueryHandler(on_proposal_button, pattern=r"^prop:"))
     app.add_handler(CallbackQueryHandler(on_remind_pref, pattern=r"^prem:"))
     app.add_handler(CallbackQueryHandler(on_tick_button, pattern=r"^tick:"))
+    app.add_handler(CallbackQueryHandler(on_playbook_button, pattern=r"^pb:"))
     app.add_handler(CallbackQueryHandler(on_reply_action, pattern=r"^(send|savedraft|cancelreply):"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
     return app
