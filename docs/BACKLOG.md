@@ -3,13 +3,16 @@
 Prioritized. Move items to WORKLOG when done. Keep "Next up" honest.
 
 ## Next up (in order)
-0. ~~**Slice α — structured multi-step tasks ("definition of done")**~~ ✅ **BUILT (session 11)** — design
-   **D21**. Optional checklist per commitment (`Step`s as hand-editable `  - [ ] …` child lines; 0 steps =
-   flat task). Capture via `propose_commitment` (action tool → `✅ Track these / ✏️ Yes, but adjust /
+0. ~~**Slice α — structured multi-step tasks ("definition of done")**~~ ✅ **SHIPPED + LIVE (session 11)** —
+   design **D21**. Optional checklist per commitment (`Step`s as hand-editable `  - [ ] …` child lines; 0 steps
+   = flat task). Capture via `propose_commitment` (action tool → `✅ Track these / ✏️ Yes, but adjust /
    ✖ Not now` card; adjust = a `revise_steps` loop) + a two-button 🔔/🔕 reminder opt (default on). Tick-off
    via `suggest_step_done` (suggest-and-confirm). `mark_done` guards on open steps; last step auto-completes;
-   `due` may carry a time; `/agenda`/brief/reminders show `1/3`, honor `remind`, chase the open step. 182 tests,
-   ruff clean. **Still to do: live-verify through the bot** (deploy + walk the flows). Then Phase 2 slice 2.
+   `due` may carry a time; `/agenda`/brief/reminders show `1/3`, honor `remind`, chase the open step. Deployed;
+   **capture path live-verified**; 3 fixes shipped from real use (source-dedup collision, DeepSeek
+   tool-call-leak recovery, single-step-checklist collapse — see WORKLOG s11). 188 tests, ruff clean.
+   **Loose ends** (next session): walk the remaining flows live — **tick-off card**, **mark_done guard**,
+   **09:00 reminder step-chase**; tidy the pre-fix **`c2`** (redundant lone step). Then Phase 2 slice 2.
 1. **Self-learning upgrade (Phase 2)** — make D3's "correct" half real (see D17). Build incrementally:
    - **Slice 1 — onboarding interview (`/onboard`)** ✅ (session 10): week-1 EA questions → new keyed,
      hand-editable `ProfileStore` (`data/profile/profile.md`), rendered into the chat prompt + notify

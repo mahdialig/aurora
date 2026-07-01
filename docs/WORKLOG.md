@@ -251,13 +251,25 @@ Append a dated entry at the end of every working session.
   remind default/opt-out, due-with-time, hand-edited checklist), rewrote `test_ledger_tools.py` (action-tool
   shapes + mark_done guard), extended `test_remind.py` (timed due-today, chase open step, remind-off skipped),
   `test_brief_compose.py` (progress + timed due), new `test_ledger_propose.py` (revise + fallbacks).
-- **Bug fix (found in first real use, pre-deploy):** `LedgerStore.add()` deduped on the raw `source`, but
-  every chat-tracked task uses the generic `source="chat"` → once one chat item existed, every later chat
-  track collapsed onto it and `add` returned an unrelated old task (user saw the NDA reminder come back as
-  "pay and send bukti potong pajak to vOffice"). Fixed: dedup now applies ONLY to structured provenance keys
-  (those containing `:`, e.g. `email:work:ab12`), never to `chat`/empty. No data corruption (add returned the
-  existing item without writing). Regression test added. This bug was live on the pre-slice-α VPS too.
-- **NOT yet live-verified through the bot** — deploy (`git push origin main` → self-hosted runner) then walk:
-  multi-part email → proposal card → adjust → Track these → 🔔/🔕 opt; `/agenda` shows `1/3`; mail implies a
-  step done → tick card → last step auto-completes; `/done` on an open-steps item confirms; a 09:00 reminder
-  chases the open step with its due time. (Laptop poller stays off — VPS is live.)
+- **Deployed to prod** (`git push origin main` → self-hosted runner, 3 green deploys) and **live-verified the
+  capture path**: told Aurora to track a real item → she proposed → the card rendered → ✅ Track these wrote it
+  → the 🔔/🔕 reminder opt fired → `/agenda` listed it. **3 fixes found in real use, all shipped:**
+  1. **Source-dedup collision** (`fix(ledger)` in the slice α commit `ba0de8d`): `add()` deduped on the raw
+     `source`, but every chat-tracked item uses `source="chat"` → once one existed, every later track collapsed
+     onto it and `add` returned an unrelated old task (user saw an NDA reminder come back as the bukti-potong
+     task; Aurora correctly flagged the mismatch rather than lying — D20 fidelity working). Fix: dedup only on
+     structured provenance keys (containing `:`, e.g. `email:work:ab12`). No data corruption. Regression test.
+  2. **DeepSeek tool-call leak** (`e6f8710`): DeepSeek intermittently emits a tool call as *text* in `content`
+     (its `｜｜DSML｜｜` markup tokens) instead of the structured `tool_calls` field → the agent loop saw none and
+     relayed raw markup to the user. `DeepSeekClient.chat()` now recovers it: `_recover_tool_calls()` parses the
+     leaked invoke/parameter markup into OpenAI-style `tool_calls` (lenient regex, coerces value types) and
+     strips the markup, so the loop executes it normally. Only triggers when there are no real tool_calls and
+     the markers are present. Tests in `test_llm_client.py`. (Model-side leak persists; this makes it a non-issue.)
+  3. **Single-step-checklist redundancy** (`967ea3c`): a one-item checklist just restates the title → showed as
+     two near-identical lines. Enforced "a checklist needs ≥2 steps, else flat" in `_as_steps` (store chokepoint)
+     + `_present_proposal` (card) + the `propose_commitment` description. Parsing is unchanged, so a deliberate
+     hand-edited single step is respected. Test added.
+- **Test count 188, ruff clean.** Still to walk live: the **tick-off card** (`suggest_step_done`), the
+  **mark_done guard** on an open-steps item, and a **09:00 reminder chasing the open step**. Cosmetic leftover:
+  `c2` (tracked pre-fix #3) kept its lone redundant step — re-track it or clean the one `  - [ ] …` line in
+  `data/ledger/commitments.md`. (Laptop poller stays off — VPS is live.)
