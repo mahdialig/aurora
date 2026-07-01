@@ -309,18 +309,45 @@ def _onboard_options(context: ContextTypes.DEFAULT_TYPE, question) -> list[tuple
     return options
 
 
+def _parse_onb_action(data: str) -> tuple[str, int | None, int | None]:
+    """Parse an ``onb:…`` callback into ``(action, question_idx, option_idx)``.
+
+    Every interview button carries the **question index it was issued for**
+    (``onb:save:7``, ``onb:pick:7:2``, ``onb:skip:7``) so the handler can detect a
+    tap on a stale card — one left over from an earlier question — and ignore it
+    instead of applying the answer to whatever question is now current (which once
+    filed a sign-off answer under the wrong key). ``question_idx``/``option_idx``
+    come back ``None`` when not present (e.g. the pre-interview ``onb:start:…`` menu,
+    or old-format callbacks with no index).
+    """
+
+    def _int(s: str | None) -> int | None:
+        try:
+            return int(s)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+
+    parts = data.split(":")
+    action = parts[1] if len(parts) > 1 else ""
+    if action == "pick":
+        return action, _int(parts[2] if len(parts) > 2 else None), _int(parts[3] if len(parts) > 3 else None)
+    if action in {"save", "edit", "skip", "stop"}:
+        return action, _int(parts[2] if len(parts) > 2 else None), None
+    return action, None, None
+
+
 async def _onboard_send_question(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> None:
     state = context.chat_data["onboarding"]
     idx = state["idx"]
     question = QUESTIONS[idx]
     rows = [
-        [InlineKeyboardButton(label, callback_data=f"onb:pick:{i}")]
+        [InlineKeyboardButton(label, callback_data=f"onb:pick:{idx}:{i}")]
         for i, (label, _value) in enumerate(_onboard_options(context, question))
     ]
     rows.append(
         [
-            InlineKeyboardButton("⏭ Skip", callback_data="onb:skip"),
-            InlineKeyboardButton("✖ Stop", callback_data="onb:stop"),
+            InlineKeyboardButton("⏭ Skip", callback_data=f"onb:skip:{idx}"),
+            InlineKeyboardButton("✖ Stop", callback_data=f"onb:stop:{idx}"),
         ]
     )
     text = f"({idx + 1}/{len(QUESTIONS)}) {question.label}"
@@ -330,13 +357,15 @@ async def _onboard_send_question(context: ContextTypes.DEFAULT_TYPE, chat_id: in
     await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=InlineKeyboardMarkup(rows))
 
 
-async def _onboard_send_confirm(context: ContextTypes.DEFAULT_TYPE, chat_id: int, value: str) -> None:
+async def _onboard_send_confirm(
+    context: ContextTypes.DEFAULT_TYPE, chat_id: int, value: str, idx: int
+) -> None:
     keyboard = InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("✅ Save", callback_data="onb:save"),
-                InlineKeyboardButton("✏️ Edit", callback_data="onb:edit"),
-                InlineKeyboardButton("⏭ Skip", callback_data="onb:skip"),
+                InlineKeyboardButton("✅ Save", callback_data=f"onb:save:{idx}"),
+                InlineKeyboardButton("✏️ Edit", callback_data=f"onb:edit:{idx}"),
+                InlineKeyboardButton("⏭ Skip", callback_data=f"onb:skip:{idx}"),
             ]
         ]
     )
@@ -398,7 +427,7 @@ async def _onboard_handle_text(update: Update, context: ContextTypes.DEFAULT_TYP
     value = await asyncio.to_thread(distill, llm, question, text)
     state["pending"] = value
     state["awaiting"] = "confirm"
-    await _onboard_send_confirm(context, chat_id, value)
+    await _onboard_send_confirm(context, chat_id, value, state["idx"])
 
 
 @_allowed_only
@@ -459,7 +488,7 @@ async def on_onboard_button(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     query = update.callback_query
     await query.answer()
     parts = (query.data or "").split(":")
-    action = parts[1] if len(parts) > 1 else ""
+    action, qidx, optidx = _parse_onb_action(query.data or "")
     chat_id = update.effective_chat.id
     base = query.message.text or ""
     profile: ProfileStore = context.application.bot_data["profile"]
@@ -481,13 +510,20 @@ async def on_onboard_button(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await query.edit_message_text(base + "\n\n(this interview has expired — /onboard to start again)")
         return
 
+    # Stale-card guard: each button records the question it was issued for. If that no
+    # longer matches where the interview is now, an old card was tapped — ignore it
+    # rather than apply this answer to the wrong question (which mis-filed a field once).
+    if qidx is not None and qidx != state["idx"]:
+        await query.edit_message_text(base + "\n\n(that was for an earlier question — use the latest card below.)")
+        return
+
     question = QUESTIONS[state["idx"]]
 
     if action == "pick":
         options = _onboard_options(context, question)
         try:
-            _label, value = options[int(parts[2])]
-        except (IndexError, ValueError):
+            _label, value = options[optidx]  # type: ignore[index]
+        except (IndexError, ValueError, TypeError):
             await query.edit_message_text(base + "\n\n(couldn't read that choice — type your answer instead)")
             return
         profile.set(question.key, value, source="onboarding")
