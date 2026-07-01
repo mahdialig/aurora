@@ -315,6 +315,11 @@ Append a dated entry at the end of every working session.
     `/playbook` command (list + `forget <name>`); `/help` entry.
   - **Tests**: `test_playbook_store.py` (10) — roundtrip, upsert-by-name, remove-reverts, match by
     trigger/name, render (empty + populated), hand-edited tolerance, empty-steps rejected. **203 pass, ruff
-    clean** (`0fc54bd`). Not yet deployed / live-verified; withholding-tax seed still to be created on the VPS.
-- **Next**: deploy slice 2a; seed the withholding-tax playbook; live-verify teach-by-confirm + a matching
-  capture pulling playbook steps. Then slice 3 (capture corrections) or slice 2b (episodic).
+    clean** (`0fc54bd`).
+  - **Deployed** (`git push origin main` → runner green, VPS on `86720bf`, restarted). **Seeded 5 starter
+    playbooks on the VPS** (`data/playbook/playbooks.md`, `src:seeded`) — user asked for several ("not an
+    organized person in the beginning; we can adjust later"), so inferred from real activity:
+    withholding-tax, respond-to-tender, invoice-client, onboard-vendor, contract-renewal. Verified they parse
+    on the VPS (store reads fresh each turn → live without restart). All adjustable via `/playbook` / hand-edit.
+- **Next**: live-verify teach-by-confirm (the `pb:` card) + a matching capture pulling playbook steps. Then
+  slice 3 (capture corrections) or slice 2b (episodic log).
