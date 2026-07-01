@@ -244,6 +244,18 @@ exactly like `reply_to_email`; the "Adjust" loop mirrors the `/onboard` state ma
 a timed `due` broke `==`/`due_on_or_before` string comparisons → all date comparisons now use the date prefix
 (`_due_date`). 182 tests, ruff clean. Not yet live-verified through the bot at time of writing.
 
+### D23 — Release versioning: semver + codename, `/version` shows the live build
+Aurora now carries a release identity so "which version is running?" is answerable (user
+request, session 12). Single source of truth: `aurora/__init__.py` (`__version__`,
+`__codename__`, `__release_note__`), mirrored in `pyproject.toml`. Scheme: **semver-ish
+`0.MINOR.PATCH`** (pre-1.0 while single-user/evolving) with a **codename per notable ship**
+tracking the headline capability. Started at **`0.6.0` "Playbooks"** (roughly: M0–M4 + VPS +
+Phase 2 slice 1 + slice α ≈ 0.1–0.5; slice 2a = 0.6). `/version` reports version + codename +
+note + the **live git short SHA** (`git rev-parse --short HEAD`, best-effort) — so it
+distinguishes releases *and* the exact deployed commit (deploys don't always bump the
+version). Bump `__version__` on a meaningful ship; the codename is adjustable (D-style: seed
+a sensible default, rename later).
+
 ### D22 — Three-layer memory: procedural playbooks first (Phase 2 slice 2)
 D17's plan is a three-layer memory: **episodic** (a log of what happened), **semantic** (distilled standing
 preferences — already realized as `ProfileStore`, D17 slice 1), and **procedural** (reusable how-to). Rather

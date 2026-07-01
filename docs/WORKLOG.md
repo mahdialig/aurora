@@ -321,5 +321,16 @@ Append a dated entry at the end of every working session.
     organized person in the beginning; we can adjust later"), so inferred from real activity:
     withholding-tax, respond-to-tender, invoice-client, onboard-vendor, contract-renewal. Verified they parse
     on the VPS (store reads fresh each turn → live without restart). All adjustable via `/playbook` / hand-edit.
-- **Next**: live-verify teach-by-confirm (the `pb:` card) + a matching capture pulling playbook steps. Then
-  slice 3 (capture corrections) or slice 2b (episodic log).
+- **Live-tested slice 2a through the bot** (user, ~16:11 WIB):
+  - **Capture pulling a playbook ✅** — "track the withholding tax (bukti potong) for vOffice" → the proposal
+    card showed the playbook's 3 steps incl. **"Pay the tax to DJP and keep the payment proof (NTPN)"**, which
+    no single email would surface. Playbook wiring confirmed. (User tapped ✖ Not now — didn't want the test item.)
+  - **Teach-by-confirm ✗ (fixed)** — "…whenever I hire a freelancer I …; save that as a playbook" → Aurora
+    called `propose_commitment` (task) instead of `propose_playbook` → "I couldn't shape that into a task."
+    A routing miss by deepseek-v4-flash. **Fix (`ed3af37`, deployed):** strengthened the `propose_playbook`
+    description (explicit 'save as a playbook' / 'whenever'/'every time' triggers, NOT propose_commitment) and
+    added the same disambiguation to the PLAYBOOKS prompt block. **Re-test through the bot pending.**
+- **Release versioning added** (user request; **D23**): `aurora.__version__ = 0.6.0` / codename **"Playbooks"**
+  (pyproject synced); new **`/version`** command reports release + codename + note + the **live git short SHA**.
+  `/help` updated. `tests/test_version.py` (3). **206 tests, ruff clean** (`ed3af37`), deployed.
+- **Next**: re-test teach-by-confirm live (routing fix). Then slice 3 (capture corrections) or slice 2b (episodic).
