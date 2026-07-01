@@ -273,3 +273,31 @@ Append a dated entry at the end of every working session.
   **mark_done guard** on an open-steps item, and a **09:00 reminder chasing the open step**. Cosmetic leftover:
   `c2` (tracked pre-fix #3) kept its lone redundant step — re-track it or clean the one `  - [ ] …` line in
   `data/ledger/commitments.md`. (Laptop poller stays off — VPS is live.)
+
+## Session 12 — Live-verify slice α + /onboard; onboarding key-map bug fixed (2026-07-01)
+- **Health checked**: VPS on `147652e`, service active, 0 errors/24h; Aurora's footprint ~50 MB RSS / near-0
+  CPU (a rounding error on the 16 GB box). Noted swap=0 (fine at this load).
+- **Slice α live checks (via the bot, user-driven):**
+  - **Tick-off card ✅** — "Tick off the OpenWay NDA reminder" → Aurora first *asked* "have you actually
+    reminded him?" (D20 definition-of-done caution), then on "I did" showed the suggest-and-confirm card and
+    ticked the step. **Last-step auto-complete ✅** — closing the final step closed the whole commitment; `c2`
+    correctly dropped off `/agenda`. That also retires the "clean up c2's lone step" chore (done + gone).
+  - **Still unwalked**: the `mark_done` guard and a 09:00 reminder step-chase — no stepped open item remains
+    to exercise them (c2 closed), so they need a fresh stepped commitment.
+- **`/onboard` live-verified — and surfaced a real bug.** 7 of 8 answers filed correctly, but the **sign-off
+  answer landed under `handle_vs_check`** ("Use best regards…") with the `signature` key left empty.
+  - **Root cause**: onboarding callback buttons carried **no question index** (`onb:save`, `onb:skip`,
+    `onb:pick:i`), so a tap on a **stale card** (left from an earlier question) applied to whatever question
+    was current — mis-filing the answer.
+  - **Data fix (live, no restart)**: renamed the mis-keyed line to `signature` in
+    `data/profile/profile.md` on the VPS (backup `profile.md.bak`). `ProfileStore` reads fresh each turn, so
+    it took effect immediately.
+  - **Code fix (`f20ec5b`, deployed)**: every interview button now stamps the question it was issued for
+    (`onb:save:7`, `onb:pick:7:2`, `onb:skip:7`); new pure `_parse_onb_action()` extracts it and the handler
+    **ignores a stale tap** whose index ≠ the current question. Old index-less callbacks degrade to a `None`
+    index (no crash). New `tests/test_onboard_callbacks.py` (parser + stale-tap detection). **193 tests, ruff
+    clean.** Pushed → runner green → VPS on `f20ec5b`, restarted 15:29 Jakarta, healthy.
+  - **Open**: not confirmed whether the actual trigger was a stale tap vs. a **skip-then-answer** (user
+    skipping the sign-off question, then typing the sign-off on the next one). If the latter, add a second
+    guard that warns when a distilled answer looks like it belongs to a different field. Awaiting user recall.
+- **Next**: Phase 2 slice 2 — three-layer memory (episodic / semantic = `ProfileStore` / procedural playbooks).

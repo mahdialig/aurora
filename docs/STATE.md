@@ -5,7 +5,7 @@
 > folder, then give a 4–6 line recap and ask what to work on. Keep this file current
 > at the end of each working session.
 
-_Last updated: 2026-06-30 (session 11 — built + **deployed slice α** (structured multi-step tasks / checklists). Live-verified the capture path through the bot; shipped 3 fixes found in real use (source-dedup collision, DeepSeek tool-call-leak recovery, single-step-checklist collapse). 188 tests pass, ruff clean. Still to walk live: tick-off card, mark_done guard, reminder step-chasing.)_
+_Last updated: 2026-07-01 (session 12 — live-verified slice α **tick-off card + last-step auto-complete** through the bot (both ✅), and `/onboard` end-to-end. Found + fixed an onboarding bug: buttons carried no question index, so a stale-card tap mis-filed the sign-off answer under `handle_vs_check` — data fixed live + code hardened (`_parse_onb_action` + stale-tap guard, `f20ec5b`, deployed). 193 tests, ruff clean. Still to walk live: mark_done guard + 09:00 reminder step-chase (need a fresh stepped item). **Next: Phase 2 slice 2 — three-layer memory.**)_
 
 ## One-line status
 Aurora is a Telegram-based conversational AI assistant that reads, searches, replies to, and
@@ -82,10 +82,13 @@ task) — now dedups only on structured provenance keys; (2) DeepSeek intermitte
 (`｜｜DSML｜｜` markup) → `DeepSeekClient.chat()` now recovers it into real `tool_calls`; (3) a one-item
 checklist is redundant (title + a lone step restating it) → checklists now require ≥2 steps, else flat.
 
-**Still to do:** (a) walk the remaining flows live — the **tick-off card**, the **mark_done guard** on an
-open-steps item, and a **09:00 reminder chasing the open step**; (b) tidy the pre-fix **`c2`** (it kept its
-redundant lone step — re-track it, or clean the one `  - [ ] …` line in `data/ledger/commitments.md`). Then
-**Phase 2 slice 2** (playbooks fill these step templates). See BACKLOG item 0.
+**Live-verified (session 12):** the **tick-off card** (suggest-and-confirm — Aurora asked "have you actually
+reminded him?" first, D20, then ticked) and **last-step auto-complete** (closing the final step closed the
+commitment; `c2` dropped off `/agenda`). That also retired the `c2` lone-step cleanup (done + gone).
+
+**Still to do:** walk the **mark_done guard** on an open-steps item and a **09:00 reminder chasing the open
+step** — both need a **fresh stepped commitment** (no stepped open item remains). Then **Phase 2 slice 2**
+(playbooks fill these step templates). See BACKLOG item 0.
 
 ## Next up — Phase 2: make Aurora *learn* you (in progress, after slice α)
 The roadmap's next milestone (BACKLOG #1; design in **D17**). Goal: complete D3's "correct" half so
@@ -97,7 +100,11 @@ Scope (build incrementally, one slice per session):
    new keyed, hand-editable **`ProfileStore`** (`data/profile/profile.md`, atomic+locked, upsert-by-key so
    corrections update in place and forgetting truly reverts). `profile.render_for_prompt()` is injected into
    the chat prompt and the notify classifier, so tone/escalation/VIPs/threshold bite immediately. `/profile`
-   views it; `/profile forget <key>` clears one. **NOT yet live-verified through the bot** — next step.
+   views it; `/profile forget <key>` clears one. **Live-verified (session 12)** — and a key-map bug was found
+   + fixed: interview buttons carried no question index, so a stale-card tap mis-filed the sign-off answer
+   under `handle_vs_check`; buttons now stamp their question index + the handler ignores stale taps (`f20ec5b`).
+   *Open:* confirm whether the trigger was a stale tap or a skip-then-answer (if the latter, add a
+   looks-like-wrong-field guard).
 2. **Three-layer memory** — `ProfileStore` *becomes* the semantic layer. Split today's flat
    `data/memory/memory.md` into episodic log / distilled
    semantic preferences (what `render_for_prompt` emits) / procedural playbooks. Touches

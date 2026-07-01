@@ -11,12 +11,14 @@ Prioritized. Move items to WORKLOG when done. Keep "Next up" honest.
    `due` may carry a time; `/agenda`/brief/reminders show `1/3`, honor `remind`, chase the open step. Deployed;
    **capture path live-verified**; 3 fixes shipped from real use (source-dedup collision, DeepSeek
    tool-call-leak recovery, single-step-checklist collapse — see WORKLOG s11). 188 tests, ruff clean.
-   **Loose ends** (next session): walk the remaining flows live — **tick-off card**, **mark_done guard**,
-   **09:00 reminder step-chase**; tidy the pre-fix **`c2`** (redundant lone step). Then Phase 2 slice 2.
+   **Loose ends**: ~~tick-off card~~ ✅ + ~~last-step auto-complete~~ ✅ + ~~tidy `c2`~~ ✅ (all session 12).
+   Remaining: walk the **mark_done guard** + a **09:00 reminder step-chase** — need a fresh stepped item
+   (c2 closed). Then Phase 2 slice 2.
 1. **Self-learning upgrade (Phase 2)** — make D3's "correct" half real (see D17). Build incrementally:
    - **Slice 1 — onboarding interview (`/onboard`)** ✅ (session 10): week-1 EA questions → new keyed,
      hand-editable `ProfileStore` (`data/profile/profile.md`), rendered into the chat prompt + notify
-     classifier. *Still to do: live-verify through the bot.*
+     classifier. ✅ **Live-verified (session 12)**; fixed a stale-card key-map bug (buttons now carry the
+     question index — `f20ec5b`). *Open: confirm stale-tap vs skip-then-answer trigger.*
    - **Slice 2 — three-layer memory**: `ProfileStore` becomes the semantic layer; add episodic log +
      procedural playbooks.
    - **Slice 3 — write-gate + capture corrections**: turn edited/cancelled drafts + notification reactions
