@@ -5,7 +5,7 @@
 > folder, then give a 4–6 line recap and ask what to work on. Keep this file current
 > at the end of each working session.
 
-_Last updated: 2026-07-01 (session 12 — live-verified slice α **tick-off card + last-step auto-complete** through the bot (both ✅), and `/onboard` end-to-end. Found + fixed an onboarding bug: buttons carried no question index, so a stale-card tap mis-filed the sign-off answer under `handle_vs_check` — data fixed live + code hardened (`_parse_onb_action` + stale-tap guard, `f20ec5b`, deployed). 193 tests, ruff clean. Still to walk live: mark_done guard + 09:00 reminder step-chase (need a fresh stepped item). Then **built + deployed Phase 2 slice 2a — procedural playbooks** (`PlaybookStore` + `propose_playbook` teach-by-confirm tool + `/playbook`; D22), 203 tests, ruff clean (`86720bf`). **Seeded 5 starter playbooks on the VPS** (withholding-tax, respond-to-tender, invoice-client, onboard-vendor, contract-renewal). **Live-tested:** capture pulling a playbook ✅ (DJP step appeared); teach-by-confirm ✗ → routing fixed (`ed3af37`), re-test pending. Added **release versioning** — `v0.6.0 "Playbooks"` + `/version` command (D23). Now on **`ed3af37`**.)_
+_Last updated: 2026-07-01 (session 12 — live-verified slice α **tick-off card + last-step auto-complete** through the bot (both ✅), and `/onboard` end-to-end. Found + fixed an onboarding bug: buttons carried no question index, so a stale-card tap mis-filed the sign-off answer under `handle_vs_check` — data fixed live + code hardened (`_parse_onb_action` + stale-tap guard, `f20ec5b`, deployed). 193 tests, ruff clean. Still to walk live: mark_done guard + 09:00 reminder step-chase (need a fresh stepped item). Then **built + deployed Phase 2 slice 2a — procedural playbooks** (`PlaybookStore` + `propose_playbook` teach-by-confirm tool + `/playbook`; D22), 203 tests, ruff clean (`86720bf`). **Seeded 5 starter playbooks on the VPS** (withholding-tax, respond-to-tender, invoice-client, onboard-vendor, contract-renewal). **Slice 2a fully live-verified** ✅ — capture pulling a playbook (DJP step appeared) AND teach-by-confirm (after a routing fix, `ed3af37`) both work through the bot. Added **release versioning** — `v0.6.0 "Playbooks"` + `/version` command (D23). Now on **`ed3af37`**. **Next session: build the queue → Phase 2 slice 3 (capture corrections).**)_
 
 ## One-line status
 Aurora is a Telegram-based conversational AI assistant that reads, searches, replies to, and
@@ -111,8 +111,9 @@ Scope (build incrementally, one slice per session):
    closes D20/D21). `propose_playbook` action tool (teach-by-confirm) + `/playbook` command; rendered into
    the turn prompt so capture pulls a matching playbook's steps. **Deployed** (`86720bf`); **5 starter
    playbooks seeded on the VPS** (`data/playbook/playbooks.md`, `src:seeded` — inferred from real activity:
-   tax, tenders, invoicing, vendors, contracts; fully adjustable via `/playbook` or hand-edit). *Still to do:
-   live-verify teach-by-confirm + a matching capture.* **Slice 2b — episodic log** deferred to pair
+   tax, tenders, invoicing, vendors, contracts; fully adjustable via `/playbook` or hand-edit).
+   **Live-verified ✅ (session 12):** a matching capture pulls the playbook's steps, and teach-by-confirm
+   saves a new one (after a routing fix). **Slice 2b — episodic log** deferred to pair
    with the reflection job (slice 4). `MemoryStore` + `ProfileStore` left as-is (no risky migration).
 3. **Write-gate + capture corrections** — the "Remember this" button is already the gate; also turn an
    edited/cancelled draft or notification reaction into a one-line lesson (scope + provenance + dedup).

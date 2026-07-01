@@ -24,8 +24,8 @@ Prioritized. Move items to WORKLOG when done. Keep "Next up" honest.
      `propose_playbook` action tool (teach-by-confirm) + `/playbook` command; injected into the turn prompt so
      capture pulls a matching playbook's steps (closes D20/D21). **Deployed** (`86720bf`); **5 starter
      playbooks seeded on the VPS** (withholding-tax, respond-to-tender, invoice-client, onboard-vendor,
-     contract-renewal; `src:seeded`, adjustable via `/playbook`). *Still to do: live-verify teach-by-confirm +
-     a matching capture.*
+     contract-renewal; `src:seeded`, adjustable via `/playbook`). ✅ **Live-verified (session 12):** matching
+     capture pulls the playbook's steps; teach-by-confirm saves a new one (after a routing fix, `ed3af37`).
    - **Slice 2b — episodic log**: deferred to pair with the reflection job (slice 4), where it earns its keep.
    - **Slice 3 — write-gate + capture corrections**: turn edited/cancelled drafts + notification reactions
      into one-line, scoped, deduped, provenance-carrying lessons (reuse slice 1's confirm gate + upsert).

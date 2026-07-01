@@ -333,4 +333,10 @@ Append a dated entry at the end of every working session.
 - **Release versioning added** (user request; **D23**): `aurora.__version__ = 0.6.0` / codename **"Playbooks"**
   (pyproject synced); new **`/version`** command reports release + codename + note + the **live git short SHA**.
   `/help` updated. `tests/test_version.py` (3). **206 tests, ruff clean** (`ed3af37`), deployed.
-- **Next**: re-test teach-by-confirm live (routing fix). Then slice 3 (capture corrections) or slice 2b (episodic).
+- **Re-tested after the routing fix — both flows pass ✅** (user confirmed): capture pulls a matching
+  playbook's steps, and teach-by-confirm shows the `💡 Save playbook` card and saves. **Slice 2a fully
+  live-verified.**
+- **Next session** (per user): build what's in queue → **Phase 2 slice 3 — write-gate + capture corrections**
+  (turn an edited/cancelled draft or a notification reaction into a one-line, scoped, deduped, provenance-
+  carrying lesson; reuse the confirm-gate + `ProfileStore.set` upsert). Then slice 4 (nightly reflection) which
+  folds in slice 2b (episodic log).
